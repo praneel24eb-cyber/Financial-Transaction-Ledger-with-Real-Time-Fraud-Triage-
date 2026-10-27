@@ -15,8 +15,8 @@ def create_account(payload: AccountCreate):
 
             try:
                 cur.execute(
-                    "INSERT INTO ACCOUNT (customer_id, type, balance, status, created_at) VALUES (%s, %s, %s, 'ACTIVE', NOW()) RETURNING account_id, customer_id, type, balance, status, created_at;",
-                    (payload.customer_id, payload.type, payload.initial_balance)
+                    "INSERT INTO ACCOUNT (customer_id, account_type, balance, status, created_at) VALUES (%s, %s, %s, 'ACTIVE', NOW()) RETURNING account_id, customer_id, account_type, balance, status, created_at;",
+                    (payload.customer_id, payload.account_type, payload.initial_balance)
                 )
                 row = cur.fetchone()
                 conn.commit()
@@ -29,7 +29,7 @@ def create_account(payload: AccountCreate):
 def get_account(account_id: int):
     with db_manager.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT account_id, customer_id, type, balance, status, created_at FROM ACCOUNT WHERE account_id = %s;", (account_id,))
+            cur.execute("SELECT account_id, customer_id, account_type, balance, status, created_at FROM ACCOUNT WHERE account_id = %s;", (account_id,))
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Account not found.")
@@ -39,6 +39,7 @@ def get_account(account_id: int):
 def list_accounts():
     with db_manager.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT account_id, customer_id, type, balance, status, created_at FROM ACCOUNT ORDER BY account_id ASC;")
+            cur.execute("SELECT account_id, customer_id, account_type, balance, status, created_at FROM ACCOUNT ORDER BY account_id ASC;")
             rows = cur.fetchall()
             return [dict(r) for r in rows]
+

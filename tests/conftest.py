@@ -1,8 +1,14 @@
 import pytest
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+
 from backend.app.config import settings
 
 def is_postgres_available() -> bool:
+    if psycopg2 is None:
+        return False
     try:
         conn = psycopg2.connect(
             host=settings.POSTGRES_HOST,

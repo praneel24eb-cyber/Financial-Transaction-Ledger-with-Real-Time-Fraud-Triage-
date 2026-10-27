@@ -88,13 +88,13 @@
           {% for acc in accounts %}
             <tr>
               <td>#{{ acc.account_id }}</td>
-              <td><span class="badge badge-purple">{{ acc.type }}</span></td>
+              <td><span class="badge badge-purple">{{ acc.account_type }}</span></td>
               <td><strong>₹{{ "%.2f"|format(acc.balance) }}</strong></td>
               <td>
                 {% if acc.status == 'ACTIVE' %}
                   <span class="badge badge-success">ACTIVE</span>
-                {% elif acc.status == 'FLAGGED' %}
-                  <span class="badge badge-danger">FLAGGED</span>
+                {% elif acc.status == 'FROZEN' %}
+                  <span class="badge badge-danger">FROZEN</span>
                 {% else %}
                   <span class="badge badge-warning">{{ acc.status }}</span>
                 {% endif %}

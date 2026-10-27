@@ -89,11 +89,11 @@ def page_dashboard(request: Request):
                 r2 = cur.fetchone()
                 open_alerts = r2['cnt'] if r2 else 0
 
-                cur.execute("SELECT COUNT(*) as cnt FROM OUTBOX_EVENT WHERE status = 'PENDING';")
+                cur.execute("SELECT COUNT(*) as cnt FROM OUTBOX WHERE status = 'PENDING';")
                 r3 = cur.fetchone()
                 outbox_pending = r3['cnt'] if r3 else 0
 
-                cur.execute("SELECT account_id, customer_id, type, balance, status FROM ACCOUNT ORDER BY account_id ASC LIMIT 10;")
+                cur.execute("SELECT account_id, customer_id, account_type, balance, status FROM ACCOUNT ORDER BY account_id ASC LIMIT 10;")
                 accs = [dict(a) for a in cur.fetchall()]
     except Exception:
         total_accounts, total_balance, open_alerts, outbox_pending, accs = 0, 0.0, 0, 0, []
@@ -132,7 +132,7 @@ def page_history(request: Request, account_id: int = Query(default=None)):
 
                 if account_id:
                     query = """
-                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status
+                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
                         FROM LEDGER_ENTRY l
                         JOIN TRANSACTION t ON l.txn_id = t.txn_id
                         WHERE l.account_id = %s
@@ -141,7 +141,7 @@ def page_history(request: Request, account_id: int = Query(default=None)):
                     cur.execute(query, (account_id,))
                 else:
                     query = """
-                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status
+                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
                         FROM LEDGER_ENTRY l
                         JOIN TRANSACTION t ON l.txn_id = t.txn_id
                         ORDER BY l.entry_id DESC LIMIT 50;

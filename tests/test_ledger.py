@@ -30,13 +30,13 @@ def test_successful_transfer():
     response = client.post("/api/v1/transactions", json=payload)
     assert response.status_code == 201, response.text
     data = response.json()
-    assert data["status"] == "COMPLETED"
+    assert data["status"] == "COMMITTED"
     assert "txn_id" in data
 
     # Verify double-entry ledger balance
     with db_manager.get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT direction, amount FROM LEDGER_ENTRY WHERE txn_id = %s;" if db_manager.use_postgres else "SELECT direction, amount FROM LEDGER_ENTRY WHERE txn_id = ?;", (data["txn_id"],))
+        cur.execute("SELECT direction, amount FROM LEDGER_ENTRY WHERE txn_id = %s;", (data["txn_id"],))
         entries = cur.fetchall()
         assert len(entries) == 2
         debits = sum(e['amount'] if isinstance(e, dict) or hasattr(e, '__getitem__') else e[1] for e in entries if (e['direction'] if isinstance(e, dict) or hasattr(e, '__getitem__') else e[0]) == 'DEBIT')

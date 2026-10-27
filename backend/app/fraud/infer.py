@@ -37,8 +37,8 @@ class FraudInferenceEngine:
         """
         # Check model availability for fail-safe fallback
         if self.model_meta is None or "model" not in self.model_meta:
-            logger.warning("Fraud model unavailable. Applying fail-safe fallback: routing to manual review (ALERT).")
-            return 65, "ALERT", "FAILSAFE_FALLBACK"
+            logger.warning("Fraud model unavailable. Applying fail-safe fallback: routing to manual review (REVIEW).")
+            return 65, "REVIEW", "FAILSAFE_FALLBACK"
 
         try:
             loc_val = feature_dict.get("location_change", feature_dict.get("device_changed", 0.0))
@@ -69,23 +69,24 @@ class FraudInferenceEngine:
             risk_score = max(0, min(100, risk_score))
 
             # Overrides for high-risk flags
-            if feature_dict["amount"] >= 50000 or loc_val == 1.0 and feature_dict["amount"] >= 20000:
+            if feature_dict["amount"] >= 50000 or (loc_val == 1.0 and feature_dict["amount"] >= 20000):
                 risk_score = max(risk_score, 85)
             elif feature_dict["velocity_1h"] >= 8:
                 risk_score = max(risk_score, 75)
 
-            # 3-Tier Policy
+            # 3-Tier Policy per FR-17: APPROVE (<50), REVIEW (50-80), ROLLBACK (>80)
             if risk_score < 50:
                 decision = "APPROVE"
             elif 50 <= risk_score <= 80:
-                decision = "ALERT"
+                decision = "REVIEW"
             else:
                 decision = "ROLLBACK"
 
             return risk_score, decision, version
 
         except Exception as err:
-            logger.error(f"Inference error ({err}). Applying fail-safe fallback: routing to manual review (ALERT).")
-            return 65, "ALERT", "FAILSAFE_FALLBACK"
+            logger.error(f"Inference error ({err}). Applying fail-safe fallback: routing to manual review (REVIEW).")
+            return 65, "REVIEW", "FAILSAFE_FALLBACK"
+
 
 fraud_engine = FraudInferenceEngine()

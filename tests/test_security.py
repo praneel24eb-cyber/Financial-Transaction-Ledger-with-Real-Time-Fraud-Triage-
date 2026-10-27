@@ -7,8 +7,8 @@ client = TestClient(app)
 def test_customer_role_forbidden_on_analyst_review():
     # Customer token / role trying to submit analyst review -> 403 Forbidden
     payload = {
-        "analyst_id": "cust_123",
-        "decision": "CONFIRMED_FRAUD"
+        "analyst_id": 1,
+        "decision": "CONFIRM_FRAUD"
     }
     headers = {"X-User-Role": "customer"}
     response = client.post("/api/v1/fraud/alerts/1/review", json=payload, headers=headers)
@@ -24,7 +24,7 @@ def test_customer_role_forbidden_on_audit_chain_verify():
 def test_analyst_role_permitted_on_analyst_review():
     # Analyst role submitting review -> passes security role gating (does not return 403)
     payload = {
-        "analyst_id": "analyst_99",
+        "analyst_id": 1,
         "decision": "FALSE_POSITIVE"
     }
     headers = {"X-User-Role": "analyst"}

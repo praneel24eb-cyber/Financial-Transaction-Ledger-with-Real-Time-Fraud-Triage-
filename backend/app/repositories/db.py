@@ -4,8 +4,12 @@ import json
 import logging
 from contextlib import contextmanager
 from typing import Generator, Any, Tuple
-import psycopg2
-from psycopg2.extras import RealDictCursor
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except ImportError:
+    psycopg2 = None
+    RealDictCursor = None
 from backend.app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -21,6 +25,7 @@ class DatabaseManager:
         self.db_name = settings.POSTGRES_DB
         self.user = settings.POSTGRES_USER
         self.password = settings.POSTGRES_PASSWORD
+        self.use_postgres = True
 
     def init_db(self):
         """Initializes PostgreSQL schema DDL, partitions, indexes, and triggers."""

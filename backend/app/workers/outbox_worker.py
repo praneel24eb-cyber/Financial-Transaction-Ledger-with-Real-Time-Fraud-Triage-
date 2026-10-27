@@ -23,7 +23,7 @@ class OutboxWorker:
 
     def process_pending_events(self) -> int:
         """
-        Polls OUTBOX_EVENT table for events in PENDING or RETRY state.
+        Polls OUTBOX table for events in PENDING state.
         Propagates events to Redis & MongoDB asynchronously.
         Returns the number of events processed.
         """
@@ -31,17 +31,17 @@ class OutboxWorker:
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 query = """
-                    SELECT event_id, txn_id, event_type, payload, status, attempts
-                    FROM OUTBOX_EVENT
-                    WHERE status IN ('PENDING', 'RETRY') AND attempts < %s
-                    ORDER BY event_id ASC
+                    SELECT outbox_id, txn_id, event_type, payload, status, attempts
+                    FROM OUTBOX
+                    WHERE status = 'PENDING' AND attempts < %s
+                    ORDER BY outbox_id ASC
                     LIMIT 20;
                 """
                 cur.execute(query, (self.max_attempts,))
                 rows = cur.fetchall()
 
                 for r in rows:
-                    event_id = r['event_id']
+                    outbox_id = r['outbox_id']
                     txn_id = r['txn_id']
                     event_type = r['event_type']
                     payload_raw = r['payload']
@@ -49,49 +49,61 @@ class OutboxWorker:
 
                     payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
 
-                    success = self._dispatch_event(event_id, txn_id, event_type, payload)
+                    success = self._dispatch_event(outbox_id, txn_id, event_type, payload)
 
                     if success:
-                        cur.execute("UPDATE OUTBOX_EVENT SET status = 'SENT' WHERE event_id = %s;", (event_id,))
+                        cur.execute("UPDATE OUTBOX SET status = 'SENT' WHERE outbox_id = %s;", (outbox_id,))
                         processed_count += 1
                     else:
                         new_attempts = attempts + 1
-                        new_status = 'FAILED' if new_attempts >= self.max_attempts else 'RETRY'
-                        cur.execute("UPDATE OUTBOX_EVENT SET status = %s, attempts = %s WHERE event_id = %s;", (new_status, new_attempts, event_id))
+                        new_status = 'FAILED' if new_attempts >= self.max_attempts else 'PENDING'
+                        cur.execute("UPDATE OUTBOX SET status = %s, attempts = %s WHERE outbox_id = %s;", (new_status, new_attempts, outbox_id))
 
                 conn.commit()
 
         return processed_count
 
-    def _dispatch_event(self, event_id: int, txn_id: int, event_type: str, payload: Dict[str, Any]) -> bool:
+    def _dispatch_event(self, outbox_id: int, txn_id: int, event_type: str, payload: Dict[str, Any]) -> bool:
         try:
             src_acc = payload.get("source_account_id")
             device_id = payload.get("device_id")
+            merchant_id = payload.get("merchant_id")
+            alert_id = payload.get("alert_id")
+
+            # 1. Update Redis velocity and recent device/merchant history (FR-27, FR-28)
             if src_acc:
-                # Redis velocity increment (non-idempotent on redelivery, documented limitation)
-                redis_repo.increment_velocity(src_acc, window_seconds=3600)
+                redis_repo.increment_velocity(src_acc, window_seconds=600)
             if src_acc and device_id:
                 redis_repo.add_recent_device(src_acc, device_id)
+            if src_acc and merchant_id:
+                redis_repo.add_recent_merchant(src_acc, merchant_id)
 
-            # MongoDB Evidence Document (idempotent upsert by txn_id)
+            # 2. MongoDB Alert Evidence Document (FR-29, ER schema: _id = alert_id)
             evidence_doc = {
+                "alert_id": alert_id,
                 "txn_id": txn_id,
-                "event_id": event_id,
+                "outbox_id": outbox_id,
                 "event_type": event_type,
                 "risk_score": payload.get("risk_score"),
                 "decision": payload.get("decision"),
                 "model_version": payload.get("model_version", "if-v1.0"),
                 "features": payload.get("features", {}),
+                "rule_hits": ["HIGH_VELOCITY"] if (payload.get("features", {}).get("velocity_1h", 0) > 5) else [],
+                "analyst_notes": "",
                 "explanation": f"Isolation Forest score: {payload.get('risk_score')}/100 ({payload.get('decision')})",
-                "raw_event_ref": f"outbox_event:{event_id}",
+                "raw_event_ref": f"outbox:{outbox_id}",
                 "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ")
             }
+
+            if alert_id:
+                mongo_repo.upsert_alert_evidence(alert_id, evidence_doc)
+
             mongo_repo.upsert_fraud_evidence(txn_id, evidence_doc)
-            mongo_repo.insert_raw_event(event_id, payload)
+            mongo_repo.insert_raw_event(outbox_id, payload)
 
             return True
         except Exception as e:
-            logger.warning(f"Failed to propagate outbox event {event_id} to Redis/Mongo: {e}")
+            logger.warning(f"Failed to propagate outbox event {outbox_id} to Redis/Mongo: {e}")
             return False
 
 outbox_worker = OutboxWorker()

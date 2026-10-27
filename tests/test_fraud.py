@@ -40,9 +40,9 @@ def test_fraud_model_failure_failsafe_fallback():
         }
         risk_score, decision, version = fraud_engine.score_transaction(features)
         
-        # Assert fail-safe manual review fallback (50-80 band)
+        # Assert fail-safe manual review fallback (50-80 band per FR-17)
         assert risk_score == 65
-        assert decision == "ALERT"
+        assert decision == "REVIEW"
         assert version == "FAILSAFE_FALLBACK"
     finally:
         fraud_engine.model_meta = original_meta

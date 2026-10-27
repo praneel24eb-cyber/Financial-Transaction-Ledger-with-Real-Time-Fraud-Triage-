@@ -13,6 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../backend/app/database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ../backend/app/database/triggers.sql:/docker-entrypoint-initdb.d/02_triggers.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger_user -d ledger_db"]
       interval: 5s

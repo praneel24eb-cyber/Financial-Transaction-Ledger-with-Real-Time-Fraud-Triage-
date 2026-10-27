@@ -22,10 +22,10 @@ def test_outbox_event_lifecycle():
     res = ledger_service.execute_transfer(source_account_id=src_id, destination_account_id=dst_id, amount=350.00, device_id=1)
     txn_id = res["txn_id"]
 
-    # Verify OUTBOX_EVENT exists with status PENDING
+    # Verify OUTBOX exists with status PENDING
     with db_manager.get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT status FROM OUTBOX_EVENT WHERE txn_id = %s;" if db_manager.use_postgres else "SELECT status FROM OUTBOX_EVENT WHERE txn_id = ?;", (txn_id,))
+        cur.execute("SELECT status FROM OUTBOX WHERE txn_id = %s;", (txn_id,))
         row = cur.fetchone()
         assert row is not None
         status = row['status'] if isinstance(row, dict) or hasattr(row, '__getitem__') else row[0]
@@ -38,7 +38,7 @@ def test_outbox_event_lifecycle():
     # Verify event status transition to SENT
     with db_manager.get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT status FROM OUTBOX_EVENT WHERE txn_id = %s;" if db_manager.use_postgres else "SELECT status FROM OUTBOX_EVENT WHERE txn_id = ?;", (txn_id,))
+        cur.execute("SELECT status FROM OUTBOX WHERE txn_id = %s;", (txn_id,))
         row = cur.fetchone()
         status = row['status'] if isinstance(row, dict) or hasattr(row, '__getitem__') else row[0]
         assert status == "SENT"

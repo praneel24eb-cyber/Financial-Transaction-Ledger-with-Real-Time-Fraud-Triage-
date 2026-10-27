@@ -18,10 +18,7 @@ def test_concurrent_transfers_no_deadlock():
         acc1 = rows[0]['account_id'] if isinstance(rows[0], dict) or hasattr(rows[0], '__getitem__') else rows[0][0]
         acc2 = rows[1]['account_id'] if isinstance(rows[1], dict) or hasattr(rows[1], '__getitem__') else rows[1][0]
 
-        if db_manager.use_postgres:
-            cur.execute("UPDATE ACCOUNT SET balance = 10000.00, status = 'ACTIVE' WHERE account_id IN (%s, %s);", (acc1, acc2))
-        else:
-            cur.execute("UPDATE ACCOUNT SET balance = 10000.00, status = 'ACTIVE' WHERE account_id IN (?, ?);", (acc1, acc2))
+        cur.execute("UPDATE ACCOUNT SET balance = 10000.00, status = 'ACTIVE' WHERE account_id IN (%s, %s);", (acc1, acc2))
         conn.commit()
 
     def transfer_a_to_b():
@@ -48,10 +45,7 @@ def test_concurrent_transfers_no_deadlock():
     # Verify final total system balance remains 20,000.00 (no lost updates!)
     with db_manager.get_connection() as conn:
         cur = conn.cursor()
-        if db_manager.use_postgres:
-            cur.execute("SELECT SUM(balance) as total_bal FROM ACCOUNT WHERE account_id IN (%s, %s);", (acc1, acc2))
-        else:
-            cur.execute("SELECT SUM(balance) as total_bal FROM ACCOUNT WHERE account_id IN (?, ?);", (acc1, acc2))
+        cur.execute("SELECT SUM(balance) as total_bal FROM ACCOUNT WHERE account_id IN (%s, %s);", (acc1, acc2))
         row = cur.fetchone()
         tot = float(row['total_bal'] if isinstance(row, dict) or hasattr(row, '__getitem__') else row[0])
         assert tot == 20000.00

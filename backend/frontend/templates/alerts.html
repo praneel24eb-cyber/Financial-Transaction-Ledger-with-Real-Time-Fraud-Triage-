@@ -19,7 +19,7 @@
       <thead>
         <tr>
           <th>Alert ID</th>
-          <th>Txn ID</th>
+          <th>Result ID</th>
           <th>Severity</th>
           <th>Status</th>
           <th>ML Evidence (Mongo)</th>
@@ -31,10 +31,12 @@
         {% for alert in alerts %}
           <tr>
             <td><code>#{{ alert.alert_id }}</code></td>
-            <td><code>#{{ alert.txn_id }}</code></td>
+            <td><code>#{{ alert.result_id }}</code></td>
             <td>
               {% if alert.severity == 'HIGH' %}
                 <span class="badge badge-danger">HIGH</span>
+              {% elif alert.severity == 'LOW' %}
+                <span class="badge badge-success">LOW</span>
               {% else %}
                 <span class="badge badge-warning">MEDIUM</span>
               {% endif %}
@@ -42,8 +44,10 @@
             <td>
               {% if alert.status == 'OPEN' %}
                 <span class="badge badge-warning">OPEN</span>
+              {% elif alert.status == 'REVIEWED' %}
+                <span class="badge badge-success">REVIEWED</span>
               {% else %}
-                <span class="badge badge-success">CLOSED</span>
+                <span class="badge badge-purple">{{ alert.status }}</span>
               {% endif %}
             </td>
             <td style="max-width: 300px; font-size: 0.8rem; color: var(--text-muted);">
@@ -82,14 +86,14 @@
     <input type="hidden" id="modal-alert-id">
 
     <div class="form-group">
-      <label class="form-label">Analyst ID / Name</label>
-      <input type="text" id="analyst_id" class="form-input" value="analyst_01" required>
+      <label class="form-label">Analyst ID</label>
+      <input type="number" id="analyst_id" class="form-input" value="1" required>
     </div>
 
     <div class="form-group">
       <label class="form-label">Review Decision</label>
       <select id="review_decision" class="form-select">
-        <option value="CONFIRMED_FRAUD">CONFIRMED_FRAUD (Confirm suspicious activity)</option>
+        <option value="CONFIRM_FRAUD">CONFIRM_FRAUD (Confirm suspicious activity)</option>
         <option value="FALSE_POSITIVE">FALSE_POSITIVE (Legitimate user transfer)</option>
         <option value="ESCALATE">ESCALATE (Send to Senior Security Operations)</option>
       </select>
@@ -97,7 +101,7 @@
 
     <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
       <button class="btn btn-secondary" onclick="closeReviewModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="submitReview()">Submit & Close Alert</button>
+      <button class="btn btn-primary" onclick="submitReview()">Submit Decision</button>
     </div>
   </div>
 </div>
