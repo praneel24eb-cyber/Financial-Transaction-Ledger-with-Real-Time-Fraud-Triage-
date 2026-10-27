@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Tamper-Evident Audit Log Chain | DBMS Ledger{% endblock %}
+
+{% block content %}
+<div class="page-header" style="margin-bottom: 2rem;">
+  <h1 class="page-title">Tamper-Evident SHA-256 Audit Log Chain</h1>
+  <p class="page-subtitle">Every mutation on financial tables (ACCOUNT, TRANSACTION, LEDGER_ENTRY) writes an append-only row linked by <code>row_hash = SHA256(prev_hash || table || op || old || new)</code>.</p>
+</div>
+
+<!-- Chain Verifier Box -->
+<div class="glass-card" style="margin-bottom: 2rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <h3 style="font-size: 1.2rem; font-weight: 700;">Audit Chain Integrity Status</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">Recalculates SHA-256 hashes across all historical audit rows from audit_id = 1.</p>
+    </div>
+    <button class="btn btn-primary" onclick="runChainVerification()">
+      🔒 Verify Audit Chain Integrity
+    </button>
+  </div>
+
+  <div id="verification-result" style="margin-top: 1rem; display: none;"></div>
+</div>
+
+<div class="glass-card">
+  <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 1.5rem;">Audit Trail Records</h3>
+  <div class="table-container">
+    <table class="custom-table">
+      <thead>
+        <tr>
+          <th>Audit ID</th>
+          <th>Table</th>
+          <th>Op</th>
+          <th>Prev Hash (SHA-256)</th>
+          <th>Row Hash (SHA-256)</th>
+          <th>Created At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in audit_rows %}
+          <tr>
+            <td><code>#{{ row.audit_id }}</code></td>
+            <td><span class="badge badge-purple">{{ row.table_name }}</span></td>
+            <td>
+              {% if row.operation == 'INSERT' %}
+                <span class="badge badge-success">INSERT</span>
+              {% elif row.operation == 'UPDATE' %}
+                <span class="badge badge-warning">UPDATE</span>
+              {% else %}
+                <span class="badge badge-danger">DELETE</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 0.75rem; color: var(--text-dim); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <code>{{ row.prev_hash or '0000000000000000000000000000000000000000000000000000000000000000' }}</code>
+            </td>
+            <td style="font-size: 0.75rem; color: var(--accent-cyan); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <code>{{ row.row_hash }}</code>
+            </td>
+            <td style="font-size: 0.85rem; color: var(--text-muted);">{{ row.created_at }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">No audit records found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function runChainVerification() {
+  const resDiv = document.getElementById('verification-result');
+  resDiv.style.display = 'block';
+  resDiv.innerHTML = '<div style="color: var(--text-muted);">Running SHA-256 verification loop across audit chain...</div>';
+
+  try {
+    const res = await fetch('/api/v1/audit/verify/chain');
+    const data = await res.json();
+
+    if (data.is_valid) {
+      resDiv.innerHTML = `
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 1rem; border-radius: var(--radius-md);">
+          <strong style="color: var(--accent-emerald);">✔ Audit Chain 100% Valid</strong>
+          <p style="color: var(--text-main); font-size: 0.9rem; margin-top: 0.25rem;">${data.message}</p>
+        </div>
+      `;
+    } else {
+      resDiv.innerHTML = `
+        <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.3); padding: 1rem; border-radius: var(--radius-md);">
+          <strong style="color: var(--accent-rose);">❌ TAMPERING DETECTED</strong>
+          <p style="color: var(--text-main); font-size: 0.9rem; margin-top: 0.25rem;">${data.message}</p>
+        </div>
+      `;
+    }
+  } catch (err) {
+    resDiv.innerHTML = `<div style="color: var(--accent-rose);">Error running verification: ${err.message}</div>`;
+  }
+}
+</script>
+{% endblock %}

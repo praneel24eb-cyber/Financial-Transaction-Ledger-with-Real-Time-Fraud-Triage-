@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Fraud Alerts & Analyst Triage | DBMS Ledger{% endblock %}
+
+{% block content %}
+<div class="page-header" style="margin-bottom: 2rem;">
+  <h1 class="page-title">Fraud Alerts & Analyst Review</h1>
+  <p class="page-subtitle">Transactions scored between 50 and 80 raise an alert for human analyst review. Evidence is synced asynchronously to MongoDB via the transactional outbox.</p>
+</div>
+
+<div class="glass-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <h3 style="font-size: 1.2rem; font-weight: 700;">Open & Reviewed Alerts</h3>
+    <div class="badge badge-warning" style="font-size: 0.9rem;">Analyst Workspace</div>
+  </div>
+
+  <div class="table-container">
+    <table class="custom-table">
+      <thead>
+        <tr>
+          <th>Alert ID</th>
+          <th>Txn ID</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>ML Evidence (Mongo)</th>
+          <th>Created At</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in alerts %}
+          <tr>
+            <td><code>#{{ alert.alert_id }}</code></td>
+            <td><code>#{{ alert.txn_id }}</code></td>
+            <td>
+              {% if alert.severity == 'HIGH' %}
+                <span class="badge badge-danger">HIGH</span>
+              {% else %}
+                <span class="badge badge-warning">MEDIUM</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if alert.status == 'OPEN' %}
+                <span class="badge badge-warning">OPEN</span>
+              {% else %}
+                <span class="badge badge-success">CLOSED</span>
+              {% endif %}
+            </td>
+            <td style="max-width: 300px; font-size: 0.8rem; color: var(--text-muted);">
+              {% if alert.evidence %}
+                <div><strong>Risk:</strong> {{ alert.evidence.risk_score }}/100 ({{ alert.evidence.decision }})</div>
+                <div><em>{{ alert.evidence.explanation }}</em></div>
+              {% else %}
+                <span>Syncing via Outbox...</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 0.85rem; color: var(--text-muted);">{{ alert.created_at }}</td>
+            <td>
+              {% if alert.status == 'OPEN' %}
+                <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="openReviewModal('{{ alert.alert_id }}')">
+                  Review Alert
+                </button>
+              {% else %}
+                <span style="color: var(--text-dim); font-size: 0.85rem;">Reviewed</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">No fraud alerts found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Analyst Review Modal -->
+<div id="review-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 1000; align-items: center; justify-content: center;">
+  <div class="glass-card" style="width: 100%; max-width: 500px; margin: 1rem;">
+    <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem;">Submit Analyst Review</h3>
+    <input type="hidden" id="modal-alert-id">
+
+    <div class="form-group">
+      <label class="form-label">Analyst ID / Name</label>
+      <input type="text" id="analyst_id" class="form-input" value="analyst_01" required>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Review Decision</label>
+      <select id="review_decision" class="form-select">
+        <option value="CONFIRMED_FRAUD">CONFIRMED_FRAUD (Confirm suspicious activity)</option>
+        <option value="FALSE_POSITIVE">FALSE_POSITIVE (Legitimate user transfer)</option>
+        <option value="ESCALATE">ESCALATE (Send to Senior Security Operations)</option>
+      </select>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+      <button class="btn btn-secondary" onclick="closeReviewModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitReview()">Submit & Close Alert</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openReviewModal(alertId) {
+  document.getElementById('modal-alert-id').value = alertId;
+  document.getElementById('review-modal').style.display = 'flex';
+}
+
+function closeReviewModal() {
+  document.getElementById('review-modal').style.display = 'none';
+}
+
+async function submitReview() {
+  const alertId = document.getElementById('modal-alert-id').value;
+  const analystId = document.getElementById('analyst_id').value;
+  const decision = document.getElementById('review_decision').value;
+
+  try {
+    const res = await fetch(`/api/v1/fraud/alerts/${alertId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analyst_id: analystId, decision: decision })
+    });
+    if (res.ok) {
+      alert('Analyst review submitted successfully.');
+      window.location.reload();
+    } else {
+      const err = await res.json();
+      alert('Error: ' + err.detail);
+    }
+  } catch (e) {
+    alert('Error submitting review: ' + e.message);
+  }
+}
+</script>
+{% endblock %}
