@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html data-mode="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fraud Ledger — Project Checklist</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface-2: #f0f2f5;
+    --border: #dfe2e7;
+    --text: #1b1f24;
+    --text-dim: #5b6270;
+    --accent: #2f5f98;
+    --accent-bg: #e6eef8;
+    --done: #1f8a4c;
+    --done-bg: #e5f5eb;
+    --track: #e2e5ea;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171b;
+      --surface: #1e2126;
+      --surface-2: #262a31;
+      --border: #333843;
+      --text: #e8eaed;
+      --text-dim: #9aa2b1;
+      --accent: #6fa3e0;
+      --accent-bg: #1e3350;
+      --done: #4fc783;
+      --done-bg: #16331f;
+      --track: #30353d;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171b;
+    --surface: #1e2126;
+    --surface-2: #262a31;
+    --border: #333843;
+    --text: #e8eaed;
+    --text-dim: #9aa2b1;
+    --accent: #6fa3e0;
+    --accent-bg: #1e3350;
+    --done: #4fc783;
+    --done-bg: #16331f;
+    --track: #30353d;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  body {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  #app { max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  .hero { padding: 6px 2px 18px; }
+  .hero h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .hero p { margin: 0; color: var(--text-dim); font-size: 0.86rem; }
+
+  .overall { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+             padding: 14px 16px; margin-bottom: 18px; }
+  .overall-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .overall-top .num { font-weight: 700; font-size: 1.05rem; }
+  .overall-top .label { color: var(--text-dim); font-size: 0.82rem; }
+  .track { width: 100%; height: 10px; border-radius: 6px; background: var(--track); overflow: hidden; }
+  .fill { height: 100%; background: var(--accent); border-radius: 6px; transition: width .25s ease; }
+  .fill.full { background: var(--done); }
+
+  .module { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+            margin-bottom: 14px; overflow: hidden; }
+  .module-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+                 padding: 12px 14px; cursor: pointer; user-select: none; }
+  .module-head:hover { background: var(--surface-2); }
+  .module-title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .module-idx { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-bg);
+                color: var(--accent); font-size: 0.78rem; font-weight: 700; display: flex;
+                align-items: center; justify-content: center; }
+  .module.done .module-idx { background: var(--done-bg); color: var(--done); }
+  .module-title { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+  .module-meta { flex: none; display: flex; align-items: center; gap: 8px; }
+  .module-frac { font-size: 0.78rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .chevron { transition: transform .15s ease; color: var(--text-dim); font-size: 0.75rem; }
+  .module.open .chevron { transform: rotate(90deg); }
+  .mini-track { width: 46px; height: 6px; border-radius: 4px; background: var(--track); overflow: hidden; }
+  .mini-fill { height: 100%; background: var(--accent); }
+  .module.done .mini-fill { background: var(--done); }
+
+  .module-body { max-height: 0; overflow: hidden; transition: max-height .2s ease; }
+  .module.open .module-body { max-height: 900px; }
+  .task-list { list-style: none; margin: 0; padding: 2px 10px 12px; border-top: 1px solid var(--border); }
+  .task { display: flex; align-items: flex-start; gap: 10px; padding: 8px 6px; border-radius: 8px; }
+  .task:hover { background: var(--surface-2); }
+  .task input[type="checkbox"] { width: 18px; height: 18px; margin-top: 1px; flex: none; accent-color: var(--accent); }
+  .task label { font-size: 0.88rem; line-height: 1.35; cursor: pointer; }
+  .task.checked label { color: var(--text-dim); text-decoration: line-through; }
+
+  .banner { font-size: 0.78rem; padding: 8px 12px; border-radius: 8px; margin-bottom: 14px;
+            background: var(--accent-bg); color: var(--accent); display: none; }
+  .banner.show { display: block; }
+
+  footer { text-align: center; color: var(--text-dim); font-size: 0.74rem; padding: 10px 0 4px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="application/json" id="state-data">{"m1-1":true,"m1-2":true,"m1-3":true,"m1-4":true,"m1-5":true,"m2-1":true,"m2-2":true,"m2-3":true,"m2-5":true,"m3-1":true,"m3-3":true,"m3-4":true,"m4-1":true,"m4-2":true,"m4-3":true,"m4-4":true,"m4-5":true,"m5-1":true,"m5-2":true,"m5-3":true,"m5-4":true,"m5-6":true,"m6-1":true,"m6-2":true,"m6-3":true,"m6-4":true,"m7-1":true,"m7-2":true,"m7-3":true,"m8-1":true,"m8-3":true,"m8-4":true,"m8-5":true,"m9-1":true,"m9-2":true,"m9-3":true,"m10-1":true,"m10-2":true,"m10-3":true,"m11-1":true,"m11-2":true,"m11-4":true,"m12-1":true,"m12-2":true}</script>
+
+<script>
+(function () {
+  "use strict";
+
+  const MODULES = [
+    { id: "m1", title: "Requirements & Schema Design", tasks: [
+      { id: "m1-1", label: "Finalize 2-page synopsis (Introduction, Existing System, Proposed System, Relational Structure, NoSQL Integration, Societal Concern)" },
+      { id: "m1-2", label: "Finalize Chen-style ER diagram (entities, cardinality, participation, derived attributes)" },
+      { id: "m1-3", label: "Apply the 7-step ER-to-relational mapping" },
+      { id: "m1-4", label: "Write final PostgreSQL DDL (tables, CHECK constraints, foreign keys)" },
+      { id: "m1-5", label: "Get the schema reviewed by guide / teammates" }
+    ]},
+    { id: "m2", title: "Core Ledger Engine (PostgreSQL)", tasks: [
+      { id: "m2-1", label: "Create Customer, Account, Device, Merchant tables" },
+      { id: "m2-2", label: "Create Transaction and Ledger_Entry tables" },
+      { id: "m2-3", label: "Implement deferred trigger enforcing SUM(debit) = SUM(credit) per transaction" },
+      { id: "m2-4", label: "Implement cached Account.balance plus a reconciliation query" },
+      { id: "m2-5", label: "Unit test: a simple transfer posts the correct ledger rows" }
+    ]},
+    { id: "m3", title: "Concurrency Control", tasks: [
+      { id: "m3-1", label: "Implement SELECT ... FOR UPDATE, locking accounts in ascending account_id order" },
+      { id: "m3-2", label: "Add retry logic for deadlocks and serialization failures" },
+      { id: "m3-3", label: "Deliberately trigger a deadlock, then confirm the fix resolves it" },
+      { id: "m3-4", label: "Benchmark Read Committed vs Repeatable Read vs Serializable" }
+    ]},
+    { id: "m4", title: "Fraud Triage Pipeline", tasks: [
+      { id: "m4-1", label: "Extract features: amount, velocity, 30-day deviation, device/location change" },
+      { id: "m4-2", label: "Train Isolation Forest on PaySim / synthetic transaction data" },
+      { id: "m4-3", label: "Build the FastAPI scoring service returning a 0-100 risk_score" },
+      { id: "m4-4", label: "Wire decision thresholds: below 50 approve, 50-80 alert, above 80 rollback + flag" },
+      { id: "m4-5", label: "Insert Fraud_Result and Fraud_Alert rows end-to-end" }
+    ]},
+    { id: "m5", title: "NoSQL Integration (Outbox Pattern)", tasks: [
+      { id: "m5-1", label: "Create the Outbox table, written in the same transaction as the ledger entries" },
+      { id: "m5-2", label: "Build the background worker that drains the Outbox" },
+      { id: "m5-3", label: "Implement Redis velocity counters (INCR with TTL)" },
+      { id: "m5-4", label: "Implement MongoDB alert-evidence documents" },
+      { id: "m5-5", label: "Test Outbox retry after a simulated NoSQL write failure" },
+      { id: "m5-6", label: "Benchmark Redis lookup vs an equivalent SQL window query" }
+    ]},
+    { id: "m6", title: "Audit & Tamper-Evidence", tasks: [
+      { id: "m6-1", label: "Add triggers writing to Audit_Log on every INSERT / UPDATE / DELETE" },
+      { id: "m6-2", label: "Implement hash chaining (prev_hash \u2192 row_hash)" },
+      { id: "m6-3", label: "Restrict privileges so Audit_Log is append-only" },
+      { id: "m6-4", label: "Test: break the chain on purpose and confirm tampering is detectable" }
+    ]},
+    { id: "m7", title: "Analyst Review Workflow", tasks: [
+      { id: "m7-1", label: "Create Analyst and Analyst_Review tables" },
+      { id: "m7-2", label: "Build the review endpoint/UI (confirm fraud / false positive / escalate)" },
+      { id: "m7-3", label: "Link the review decision back to Fraud_Alert.status" }
+    ]},
+    { id: "m8", title: "Performance Optimization & Benchmarking", tasks: [
+      { id: "m8-1", label: "Add indexes (account + time, alert status, transaction status)" },
+      { id: "m8-2", label: "Add materialized views for balances and daily summaries" },
+      { id: "m8-3", label: "Partition Ledger_Entry by month" },
+      { id: "m8-4", label: "Run EXPLAIN ANALYZE before and after indexing" },
+      { id: "m8-5", label: "Run pgbench throughput tests across isolation levels" }
+    ]},
+    { id: "m9", title: "API & Application Layer", tasks: [
+      { id: "m9-1", label: "Build FastAPI endpoints: transfer, account, alerts, review" },
+      { id: "m9-2", label: "Add input validation and error handling" },
+      { id: "m9-3", label: "Add basic role separation (customer vs analyst)" }
+    ]},
+    { id: "m10", title: "Dashboard", tasks: [
+      { id: "m10-1", label: "Transaction feed view" },
+      { id: "m10-2", label: "Alert queue with review actions" },
+      { id: "m10-3", label: "Benchmark results / charts view" }
+    ]},
+    { id: "m11", title: "Testing & Evaluation", tasks: [
+      { id: "m11-1", label: "Concurrency correctness tests (no lost updates, no negative balances)" },
+      { id: "m11-2", label: "Load test under concurrent transfers" },
+      { id: "m11-3", label: "Fraud-detection metrics: precision, recall, F1" },
+      { id: "m11-4", label: "Document all results" }
+    ]},
+    { id: "m12", title: "Documentation & Submission", tasks: [
+      { id: "m12-1", label: "Finalize the 2-page synopsis in the required format" },
+      { id: "m12-2", label: "Finalize the ER diagram and relational model document" },
+      { id: "m12-3", label: "Write the final project report" },
+      { id: "m12-4", label: "Prepare the demo script and viva Q&A" }
+    ]}
+  ];
+
+  const openState = {}; // which module cards are expanded (local-only, not persisted)
+  let STATE = {};
+  let banner = null;
+  let writable = true;
+
+  function readEmbeddedState() {
+    try {
+      const el = document.getElementById("state-data");
+      return JSON.parse(el.textContent || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function countDone(mod, state) {
+    let n = 0;
+    mod.tasks.forEach(function (t) { if (state[t.id]) n++; });
+    return n;
+  }
+
+  function totalCounts(state) {
+    let done = 0, total = 0;
+    MODULES.forEach(function (m) {
+      total += m.tasks.length;
+      done += countDone(m, state);
+    });
+    return { done: done, total: total };
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function renderApp() {
+    const app = document.getElementById("app");
+    const totals = totalCounts(STATE);
+    const pct = totals.total ? Math.round((totals.done / totals.total) * 100) : 0;
+
+    let html = "";
+    html += '<div class="hero"><h1>Financial Transaction Ledger \u2014 Project Checklist</h1>';
+    html += '<p>Module-wise build plan. Tick off tasks as your team completes them \u2014 progress is shared across everyone who opens this page.</p></div>';
+
+    html += '<div class="banner' + (banner ? " show" : "") + '" id="banner-el">' + (banner || "") + "</div>";
+
+    html += '<div class="overall"><div class="overall-top"><span class="num">' + totals.done + " / " + totals.total +
+      ' tasks done</span><span class="label">' + pct + "% complete</span></div>";
+    html += '<div class="track"><div class="fill' + (pct === 100 ? " full" : "") + '" style="width:' + pct + '%"></div></div></div>';
+
+    MODULES.forEach(function (mod, idx) {
+      const done = countDone(mod, STATE);
+      const total = mod.tasks.length;
+      const modPct = total ? Math.round((done / total) * 100) : 0;
+      const isOpen = !!openState[mod.id];
+      const isDone = done === total;
+      html += '<div class="module' + (isOpen ? " open" : "") + (isDone ? " done" : "") + '" data-module="' + mod.id + '">';
+      html += '<div class="module-head" data-toggle="' + mod.id + '">';
+      html += '<div class="module-title-wrap"><span class="module-idx">' + (idx + 1) + '</span>';
+      html += '<span class="module-title">' + escapeHtml(mod.title) + "</span></div>";
+      html += '<div class="module-meta"><span class="module-frac">' + done + "/" + total + '</span>';
+      html += '<div class="mini-track"><div class="mini-fill" style="width:' + modPct + '%"></div></div>';
+      html += '<span class="chevron">\u25B6</span></div></div>';
+      html += '<div class="module-body"><ul class="task-list">';
+      mod.tasks.forEach(function (t) {
+        const checked = !!STATE[t.id];
+        html += '<li class="task' + (checked ? " checked" : "") + '">';
+        html += '<input type="checkbox" id="cb-' + t.id + '" data-task="' + t.id + '"' + (checked ? " checked" : "") + ">";
+        html += '<label for="cb-' + t.id + '">' + escapeHtml(t.label) + "</label></li>";
+      });
+      html += "</ul></div></div>";
+    });
+
+    html += '<footer>DBMS course project \u00b7 team of 3</footer>';
+    app.innerHTML = html;
+
+    app.querySelectorAll("[data-toggle]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        const id = el.getAttribute("data-toggle");
+        openState[id] = !openState[id];
+        renderApp();
+      });
+    });
+    app.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        onToggle(cb.getAttribute("data-task"), cb.checked);
+      });
+    });
+  }
+
+  function setBanner(msg, autoHideMs) {
+    banner = msg;
+    const el = document.getElementById("banner-el");
+    if (el) {
+      el.textContent = msg || "";
+      el.className = "banner" + (msg ? " show" : "");
+    }
+    if (msg && autoHideMs) {
+      setTimeout(function () {
+        if (banner === msg) { banner = null; const e2 = document.getElementById("banner-el"); if (e2) { e2.className = "banner"; } }
+      }, autoHideMs);
+    }
+  }
+
+  function buildPublishHtml(rawHtml, newState) {
+    const stateJson = JSON.stringify(newState);
+    const re = /(<script type="application\/json" id="state-data">)([\s\S]*?)(<\/script>)/;
+    if (re.test(rawHtml)) {
+      return rawHtml.replace(re, function (m, a, b, c) { return a + stateJson + c; });
+    }
+    return null;
+  }
+
+  async function onToggle(taskId, checked) {
+    // optimistic local update
+    STATE[taskId] = checked;
+    renderApp();
+
+    if (!writable) { return; }
+
+    let claudeApi;
+    try {
+      claudeApi = (typeof claude !== "undefined") ? claude : null;
+    } catch (e) { claudeApi = null; }
+    if (!claudeApi || !claudeApi.use) {
+      setBanner("Progress isn't shared here \u2014 publish this page to save it for the team.", 0);
+      writable = false;
+      return;
+    }
+
+    let artifact;
+    try {
+      artifact = await claudeApi.use("artifact");
+    } catch (e) { artifact = null; }
+    if (!artifact) {
+      setBanner("Progress isn't shared here \u2014 publish this page to save it for the team.", 0);
+      writable = false;
+      return;
+    }
+
+    try {
+      const res = await fetch(location.href, { cache: "no-store" });
+      const rawHtml = await res.text();
+      // merge our one toggle on top of whatever is currently published,
+      // so a teammate's concurrent change isn't clobbered
+      const liveState = (function () {
+        try {
+          const m = rawHtml.match(/<script type="application\/json" id="state-data">([\s\S]*?)<\/script>/);
+          return m ? JSON.parse(m[1]) : {};
+        } catch (e) { return {}; }
+      })();
+      liveState[taskId] = checked;
+      const newHtml = buildPublishHtml(rawHtml, liveState);
+      if (!newHtml) { return; }
+      const result = await artifact.publish(newHtml);
+      if (result && result.error) {
+        const code = result.error.code;
+        if (code === "not_writer" || code === "not_granted" || code === "consent_required") {
+          setBanner("This checklist is read-only for you \u2014 changes won't be saved.", 0);
+          writable = false;
+        } else if (code === "conflict") {
+          // the shell reloads every open view to the winning version; nothing to do
+        } else {
+          setBanner("Couldn't save just now \u2014 your tick may not have been kept.", 4000);
+        }
+      } else {
+        STATE = liveState;
+      }
+    } catch (e) {
+      setBanner("Couldn't save just now \u2014 your tick may not have been kept.", 4000);
+    }
+  }
+
+  STATE = readEmbeddedState();
+  renderApp();
+})();
+</script>
+</body>
+</html>

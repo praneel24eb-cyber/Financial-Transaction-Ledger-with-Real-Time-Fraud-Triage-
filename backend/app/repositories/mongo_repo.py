@@ -17,7 +17,12 @@ class MongoRepository:
 
         if pymongo is not None:
             try:
-                self.client = pymongo.MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=1000)
+                self.client = pymongo.MongoClient(
+                    settings.MONGO_URI,
+                    serverSelectionTimeoutMS=1000,
+                    connectTimeoutMS=1000,
+                    socketTimeoutMS=1000
+                )
                 self.client.admin.command('ping')
                 self.db = self.client[settings.MONGO_DB_NAME]
                 self.evidence_col = self.db["fraud_evidence"]

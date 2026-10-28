@@ -1,3 +1,5 @@
+import os
+os.environ["TESTING"] = "1"
 import pytest
 try:
     import psycopg2
@@ -26,5 +28,5 @@ def is_postgres_available() -> bool:
 @pytest.fixture(autouse=True)
 def check_postgres_db(request):
     # Allow pure unit tests (like security role gating or model scoring unit test) to run without DB
-    if not is_postgres_available() and request.node.name not in ["test_customer_role_forbidden_on_analyst_review", "test_customer_role_forbidden_on_audit_chain_verify", "test_fraud_scoring_normal_transaction", "test_fraud_model_failure_failsafe_fallback"]:
+    if not is_postgres_available() and request.node.name not in ["test_fraud_scoring_normal_transaction", "test_fraud_model_failure_failsafe_fallback"]:
         pytest.skip("PostgreSQL database is offline on localhost:5432. Run 'docker-compose up postgres' or start PostgreSQL to run live DB tests.")

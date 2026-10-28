@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if os.getenv("TESTING") == "1":
+        yield
+        return
     # Startup logic: Initialize PostgreSQL schema and seed dataset if empty
     logger.info("Initializing Financial Ledger PostgreSQL Database & Models...")
     try:
@@ -41,9 +44,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Database connection or init on startup: {e}")
 
     # Start Outbox Worker Daemon Thread
-    outbox_thread = threading.Thread(target=run_outbox_worker_loop, daemon=True)
-    outbox_thread.start()
-    logger.info("Outbox worker thread started in background.")
+    if os.getenv("TESTING") != "1":
+        outbox_thread = threading.Thread(target=run_outbox_worker_loop, daemon=True)
+        outbox_thread.start()
+        logger.info("Outbox worker thread started in background.")
 
     yield
 
