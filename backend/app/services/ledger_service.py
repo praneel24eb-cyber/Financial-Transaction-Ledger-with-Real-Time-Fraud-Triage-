@@ -1,6 +1,8 @@
+import time
+import random
 import json
 import logging
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 from fastapi import HTTPException, status
 from backend.app.repositories.db import db_manager
 from backend.app.fraud.features import extract_fraud_features
@@ -16,18 +18,14 @@ class LedgerService:
         amount: float,
         device_id: Optional[int] = None,
         merchant_id: Optional[int] = None,
-        isolation_level: str = "READ COMMITTED"
+        isolation_level: str = "READ COMMITTED",
+        max_retries: int = 3,
+        base_backoff: float = 0.05
     ) -> Dict[str, Any]:
         """
-        Executes an atomic money transfer between two accounts with real-time fraud triage in PostgreSQL:
-        1. Opens single PostgreSQL transaction under requested isolation level (FR-11).
-        2. Acquires row-level locks FOR UPDATE in ascending lock-order (account_id ASC) to eliminate deadlocks (FR-10).
-        3. Validates account status and sufficient balance (FR-9).
-        4. Extracts features & scores via Isolation Forest (FR-15, FR-16).
-        5. Triage decision (<50 approve, 50-80 review+alert, >80 rollback & freeze) (FR-17, FR-18).
-        6. Inserts balanced DEBIT and CREDIT ledger entries (FR-7, FR-8).
-        7. Records transactional outbox event for asynchronous NoSQL propagation (FR-30, FR-31).
-        8. Commits transaction (Triggers automatically maintain tamper-evident audit log).
+        Executes an atomic money transfer between two accounts with real-time fraud triage in PostgreSQL.
+        Includes automatic retry loop with exponential backoff & jitter for deadlocks (40P01)
+        and serialization failures (40001) as required by Concurrency Control spec (m3-2).
         """
         if source_account_id == destination_account_id:
             raise HTTPException(status_code=400, detail="Self-transfer is not permitted (source and destination accounts must differ).")
@@ -35,7 +33,56 @@ class LedgerService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Transfer amount must be strictly greater than zero.")
 
-        # Validate isolation level
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                return LedgerService._do_transfer(
+                    source_account_id=source_account_id,
+                    destination_account_id=destination_account_id,
+                    amount=amount,
+                    device_id=device_id,
+                    merchant_id=merchant_id,
+                    isolation_level=isolation_level
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                last_error = e
+                # Check for PostgreSQL serialization failure (40001) or deadlock detected (40P01)
+                pgcode = getattr(e, "pgcode", None)
+                err_str = str(e).lower()
+                is_retryable = (
+                    pgcode in ("40001", "40P01") or 
+                    "deadlock detected" in err_str or 
+                    "could not serialize access" in err_str
+                )
+                if is_retryable and attempt < max_retries:
+                    backoff = base_backoff * (2 ** attempt) + random.uniform(0.01, 0.05)
+                    logger.warning(
+                        f"Concurrency conflict (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {backoff:.3f}s..."
+                    )
+                    time.sleep(backoff)
+                    continue
+
+                logger.error(f"Transfer transaction failed permanently (attempt {attempt + 1}): {e}", exc_info=True)
+                if is_retryable:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Transaction could not serialize or encountered deadlock after maximum retries. Please retry shortly."
+                    )
+                raise HTTPException(status_code=500, detail=f"Transaction processing error: {str(e)}")
+
+        raise HTTPException(status_code=500, detail=f"Transaction failed: {str(last_error)}")
+
+    @staticmethod
+    def _do_transfer(
+        source_account_id: int,
+        destination_account_id: int,
+        amount: float,
+        device_id: Optional[int] = None,
+        merchant_id: Optional[int] = None,
+        isolation_level: str = "READ COMMITTED"
+    ) -> Dict[str, Any]:
         valid_isolation_levels = {
             "READ COMMITTED": "READ COMMITTED",
             "REPEATABLE READ": "REPEATABLE READ",
@@ -43,7 +90,7 @@ class LedgerService:
         }
         chosen_isolation = valid_isolation_levels.get(isolation_level.upper(), "READ COMMITTED")
 
-        # Fixed lock ordering: sort account IDs ascending to prevent circular waits & deadlocks
+        # Fixed lock ordering: sort account IDs ascending to prevent circular waits & deadlocks (m3-1)
         first_lock_id, second_lock_id = sorted([source_account_id, destination_account_id])
 
         with db_manager.get_connection() as conn:
@@ -116,7 +163,6 @@ class LedgerService:
                         )
                         alert_id = cur.fetchone()['alert_id']
 
-                        # Write outbox event for NoSQL sync
                         outbox_payload = {
                             "txn_id": rb_txn_id,
                             "alert_id": alert_id,
@@ -131,21 +177,28 @@ class LedgerService:
                             "features": features
                         }
                         cur.execute(
-                            "INSERT INTO OUTBOX (txn_id, event_type, payload, status, created_at) VALUES (%s, 'FRAUD_ROLLBACK', %s, 'PENDING', NOW());",
+                            "INSERT INTO OUTBOX (txn_id, event_type, payload, status, created_at) VALUES (%s, 'HIGH_RISK_ROLLBACK', %s, 'PENDING', NOW());",
                             (rb_txn_id, json.dumps(outbox_payload))
                         )
 
                         conn.commit()
 
-                        raise HTTPException(
-                            status_code=403,
-                            detail=f"Transaction DECLINED for high risk score ({risk_score}/100). Source account has been FROZEN for security review."
-                        )
+                        return {
+                            "txn_id": rb_txn_id,
+                            "status": "ROLLED_BACK",
+                            "message": f"Transfer blocked by real-time fraud engine (Risk Score: {risk_score}/100). Source account has been frozen.",
+                            "risk_score": risk_score,
+                            "decision": decision,
+                            "model_version": model_version,
+                            "source_balance": src_balance,
+                            "destination_balance": dst_balance
+                        }
 
-                    # 4. Low/Medium Risk Flow: APPROVE / REVIEW -> Insert TRANSACTION (COMMITTED)
+                    # 4. Standard Approved or Medium-Risk Transfer: Insert TRANSACTION row
+                    txn_status = "PENDING"
                     cur.execute(
-                        "INSERT INTO TRANSACTION (txn_type, status, merchant_id, device_id, initiated_at) VALUES ('TRANSFER', 'COMMITTED', %s, %s, NOW()) RETURNING txn_id;",
-                        (merchant_id, device_id)
+                        "INSERT INTO TRANSACTION (txn_type, status, merchant_id, device_id, initiated_at) VALUES ('TRANSFER', %s, %s, %s, NOW()) RETURNING txn_id;",
+                        (txn_status, merchant_id, device_id)
                     )
                     txn_id = cur.fetchone()['txn_id']
 
@@ -211,10 +264,49 @@ class LedgerService:
                 except HTTPException:
                     conn.rollback()
                     raise
-                except Exception as e:
+                except Exception:
                     conn.rollback()
-                    logger.error(f"Transfer transaction failed with exception: {e}", exc_info=True)
-                    raise HTTPException(status_code=500, detail=f"Transaction processing error: {str(e)}")
+                    raise
+
+    @staticmethod
+    def reconcile_balances(account_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Reconciliation Query (m2-4):
+        Verifies integrity between cached Account.balance and actual double-entry LEDGER_ENTRY rows.
+        Computes net ledger movement:
+          net_movement = SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END)
+        """
+        query = """
+            SELECT 
+                a.account_id,
+                a.customer_id,
+                a.account_type,
+                a.status,
+                a.balance AS cached_balance,
+                COALESCE(SUM(CASE WHEN l.direction = 'CREDIT' THEN l.amount ELSE -l.amount END), 0.00) AS net_ledger_movement,
+                COUNT(l.entry_id) AS total_ledger_entries,
+                MAX(l.created_at) AS last_ledger_entry_at
+            FROM ACCOUNT a
+            LEFT JOIN LEDGER_ENTRY l ON a.account_id = l.account_id
+        """
+        params = []
+        if account_id is not None:
+            query += " WHERE a.account_id = %s"
+            params.append(account_id)
+        query += " GROUP BY a.account_id, a.customer_id, a.account_type, a.status, a.balance ORDER BY a.account_id ASC;"
+
+        with db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params) if params else None)
+                rows = cur.fetchall()
+                results = []
+                for r in rows:
+                    rec = dict(r)
+                    cached = float(rec["cached_balance"])
+                    net = float(rec["net_ledger_movement"])
+                    rec["cached_balance"] = round(cached, 2)
+                    rec["net_ledger_movement"] = round(net, 2)
+                    results.append(rec)
+                return results
 
 ledger_service = LedgerService()
-

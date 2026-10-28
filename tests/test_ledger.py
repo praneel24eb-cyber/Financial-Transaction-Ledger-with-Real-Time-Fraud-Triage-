@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from backend.app.main import app
 from backend.app.database.seed import seed_database
 from backend.app.repositories.db import db_manager
+from backend.app.services.ledger_service import ledger_service
 
 client = TestClient(app)
 
@@ -80,3 +81,12 @@ def test_self_transfer_rejected():
     }
     response = client.post("/api/v1/transactions", json=payload)
     assert response.status_code == 400
+
+def test_account_balance_reconciliation():
+    results = ledger_service.reconcile_balances()
+    assert isinstance(results, list)
+    assert len(results) > 0
+    for item in results:
+        assert "account_id" in item
+        assert "cached_balance" in item
+        assert "net_ledger_movement" in item

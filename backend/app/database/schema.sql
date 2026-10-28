@@ -147,6 +147,42 @@ CREATE INDEX IF NOT EXISTS idx_fraud_alert_status ON FRAUD_ALERT(status);
 CREATE INDEX IF NOT EXISTS idx_outbox_status ON OUTBOX(status, attempts);
 
 -- ===================================================================
+-- MATERIALIZED VIEWS (Performance Optimization & Reporting - m8-2)
+-- ===================================================================
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_account_balances AS
+SELECT 
+    a.account_id,
+    a.customer_id,
+    a.account_type,
+    a.status,
+    a.balance AS cached_balance,
+    COALESCE(SUM(CASE WHEN l.direction = 'CREDIT' THEN l.amount ELSE -l.amount END), 0.00) AS calculated_ledger_balance,
+    COUNT(l.entry_id) AS total_ledger_entries,
+    MAX(l.created_at) AS last_activity_at
+FROM ACCOUNT a
+LEFT JOIN LEDGER_ENTRY l ON a.account_id = l.account_id
+GROUP BY a.account_id, a.customer_id, a.account_type, a.status, a.balance;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_account_balances_id ON mv_account_balances(account_id);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_daily_transaction_summary AS
+SELECT 
+    DATE(t.initiated_at) AS summary_date,
+    t.txn_type,
+    t.status,
+    COUNT(t.txn_id) AS total_transactions,
+    COALESCE(SUM(l.amount), 0.00) AS total_volume,
+    COALESCE(AVG(l.amount), 0.00) AS avg_amount,
+    COUNT(fa.alert_id) AS total_alerts
+FROM TRANSACTION t
+LEFT JOIN LEDGER_ENTRY l ON t.txn_id = l.txn_id AND l.direction = 'DEBIT'
+LEFT JOIN FRAUD_RESULT fr ON t.txn_id = fr.txn_id
+LEFT JOIN FRAUD_ALERT fa ON fr.result_id = fa.result_id
+GROUP BY DATE(t.initiated_at), t.txn_type, t.status;
+
+CREATE INDEX IF NOT EXISTS idx_mv_daily_summary_date ON mv_daily_transaction_summary(summary_date);
+
+-- ===================================================================
 -- SECURITY / PERMISSIONS LAYER
 -- Restricted application role with INSERT-ONLY privileges on AUDIT_LOG
 -- ===================================================================
@@ -164,6 +200,7 @@ GRANT USAGE ON SCHEMA public TO ledger_app_role;
 -- Operational table permissions
 GRANT SELECT, INSERT, UPDATE ON ACCOUNT, TRANSACTION, LEDGER_ENTRY, FRAUD_RESULT, FRAUD_ALERT, ANALYST, ANALYST_REVIEW, CUSTOMER, DEVICE, MERCHANT, OUTBOX TO ledger_app_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ledger_app_role;
+GRANT SELECT ON mv_account_balances, mv_daily_transaction_summary TO ledger_app_role;
 
 -- Security Restriction: AUDIT_LOG is strictly INSERT and SELECT only (NO UPDATE / DELETE)
 GRANT SELECT, INSERT ON AUDIT_LOG TO ledger_app_role;
