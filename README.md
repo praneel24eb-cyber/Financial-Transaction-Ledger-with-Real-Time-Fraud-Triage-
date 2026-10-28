@@ -18,7 +18,7 @@ Repository: [Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-](https://
 
 - [Architectural Overview](#-architectural-overview)
 - [System Architecture Diagram](#-system-architecture-diagram)
-- [12-Module Project Implementation Checklist](#-12-module-project-implementation-checklist)
+- [Features in this Project](#-features-in-this-project)
 - [Key Engineering Pillars](#-key-engineering-pillars)
   - [1. ACID Double-Entry Bookkeeping & Reconciliation](#1-acid-double-entry-bookkeeping--reconciliation)
   - [2. Deadlock-Free Concurrency Control & Retry Logic](#2-deadlock-free-concurrency-control--retry-logic)
@@ -107,25 +107,24 @@ flowchart TD
 
 ---
 
-## 📋 12-Module Project Implementation Checklist
+## ✨ Features in this Project
 
-This project is built according to the comprehensive task checklist in [`documentation/Fraud Ledger — Project Checklist.html`](documentation/Fraud%20Ledger%20%E2%80%94%20Project%20Checklist.html). All **52 tasks across all 12 modules** are **100% completed**:
+The system implements an end-to-end financial transaction ledger and automated fraud protection architecture:
 
-| Module | Scope & Objectives | Tasks | Status |
-|---|---|:---:|:---:|
-| **Module 1: Requirements & Schema Design** | 2-page synopsis, Chen-style ER diagram, 7-step ER-to-relational mapping, PostgreSQL DDL with CHECK constraints & FKs, peer/guide review | 5 / 5 | ✅ Complete |
-| **Module 2: Core Ledger Engine (PostgreSQL)** | Customer, Account, Device, Merchant, Transaction, Ledger_Entry tables; deferred zero-sum trigger; cached balance & reconciliation query; transfer unit tests | 5 / 5 | ✅ Complete |
-| **Module 3: Concurrency Control** | `SELECT ... FOR UPDATE` in ascending `account_id` order; deadlock & serialization retry loop with backoff; deliberate deadlock demo; isolation level benchmarks | 4 / 4 | ✅ Complete |
-| **Module 4: Fraud Triage Pipeline** | 5-D feature extraction; Isolation Forest training; FastAPI scoring service (0-100 risk score); 3-tier triage thresholds (<50, 50-80, >80); end-to-end result & alert generation | 5 / 5 | ✅ Complete |
-| **Module 5: NoSQL Integration (Outbox Pattern)** | Transactional Outbox table; asynchronous draining worker; Redis velocity counters (`INCR` with TTL); MongoDB alert evidence documents; NoSQL write failure retry tests; Redis vs SQL window query benchmarks | 6 / 6 | ✅ Complete |
-| **Module 6: Audit & Tamper-Evidence** | Automated triggers writing to `AUDIT_LOG`; SHA-256 hash chaining (`prev_hash` $\to$ `row_hash`); append-only privilege restriction (`REVOKE UPDATE, DELETE`); tamper-detection test | 4 / 4 | ✅ Complete |
-| **Module 7: Analyst Review Workflow** | Analyst & Analyst_Review tables; review endpoint & UI (`CONFIRM_FRAUD`, `FALSE_POSITIVE`, `ESCALATE`); state machine linking decision back to `FRAUD_ALERT.status` | 3 / 3 | ✅ Complete |
-| **Module 8: Performance Optimization & Benchmarking** | Composite B-Tree indexes; Materialized Views (`mv_account_balances`, `mv_daily_transaction_summary`); monthly range partitioning; `EXPLAIN ANALYZE` reports; pgbench benchmarks across isolation levels | 5 / 5 | ✅ Complete |
-| **Module 9: API & Application Layer** | FastAPI REST endpoints (transfers, accounts, reconciliation, alerts, reviews, audit); Pydantic validation; RBAC role separation (`customer`, `analyst`, `admin`) | 3 / 3 | ✅ Complete |
-| **Module 10: Interactive UI Dashboard** | Transaction history feed; analyst alert queue with review modal; system benchmark charts view; cryptographic audit chain inspector | 3 / 3 | ✅ Complete |
-| **Module 11: Testing & Evaluation** | Concurrency correctness tests; concurrent multi-threaded load tests; ML metrics evaluation report (Precision, Recall, F1); benchmark documentation | 4 / 4 | ✅ Complete |
-| **Module 12: Documentation & Submission** | Academic project synopsis; Chen ER diagram & relational document; final project report (`Final_Project_Report.md`); demo script & viva voce Q&A guide (`Demo_Script_and_Viva_QA.md`) | 4 / 4 | ✅ Complete |
-| **Total** | **Comprehensive DBMS Academic Implementation** | **52 / 52** | **100% Done** |
+| Subsystem / Feature | Key Engineering Capabilities |
+|---|---|
+| **Relational Schema & Integrity Design** | Normalized relational schema in 3NF/BCNF with strict domain `CHECK` constraints (non-negative balances, enumerated statuses) and cascading/restricting foreign keys across Customer, Account, Device, and Merchant entities. |
+| **Double-Entry Ledger Engine** | Absolute conservation of funds ($\sum \text{debits} = \sum \text{credits}$) enforced via PostgreSQL deferred constraint triggers, immutable ledger legs, cached account balances, and automated reconciliation routines. |
+| **Deadlock-Free Concurrency Control** | Deterministic ascending row-level locking (`account_id ASC`) with `SELECT ... FOR UPDATE` eliminating circular wait deadlocks, coupled with an automatic exponential backoff retry loop for serialization conflicts (`40001` / `40P01`). |
+| **Real-Time ML Fraud Triage** | 5-dimensional feature pipeline paired with an unsupervised Isolation Forest model (99.70% accuracy, 0.9690 F1-score) delivering 3-tier real-time triage (`APPROVE` < 50, `REVIEW` 50–80, `ROLLBACK` > 80 with automatic source account freeze). |
+| **Fail-Safe Fallback Protection** | Deterministic heuristic rule fallback ensuring transactions are never blindly approved if the ML service encounters latency or exceptions. |
+| **Transactional Outbox & NoSQL Synchronization** | Guaranteed eventual consistency between PostgreSQL, Redis (rolling velocity counters), and MongoDB (unstructured fraud evidence) via an asynchronous outbox worker with retry backoff and failure recovery. |
+| **Cryptographic Audit Trail** | Tamper-evident append-only `AUDIT_LOG` with SHA-256 hash chaining (`prev_hash` $\to$ `row_hash`) and database-level privilege revocation (`REVOKE UPDATE, DELETE`) to detect retroactive mutation. |
+| **Human-in-the-Loop Analyst Workflows** | Dedicated triage queues and review state transitions (`CONFIRM_FRAUD`, `FALSE_POSITIVE`, `ESCALATE`) linking analyst findings back to alert and account states. |
+| **Performance Optimizations & Partitioning** | Monthly range partitioning on ledger entries, composite B-Tree indexes, and PostgreSQL Materialized Views (`mv_account_balances`, `mv_daily_transaction_summary`) for instant aggregations. |
+| **Role-Based Access Control (RBAC)** | Multi-tier role gating (`customer`, `analyst`, `admin`) enforced via HTTP headers across all API endpoints and operations. |
+| **Interactive UI Dashboard** | Glassmorphism web UI with real-time transfer terminals, live transaction history, analyst triage desks, audit chain verifiers, and benchmark visualizers. |
+| **Automated Verification Harness** | Full automated test harness covering concurrency race conditions, ledger balancing, fault-injection outbox retries, and cryptographic tamper detection. |
 
 ---
 
@@ -136,7 +135,7 @@ This project is built according to the comprehensive task checklist in [`documen
 - Enforced at the database level via a PostgreSQL **deferred constraint trigger**:
   $$\sum \text{debits} = \sum \text{credits}$$
 - Balance checks prevent overdrafts (`CHECK (balance >= 0)`).
-- **Automated Balance Reconciliation (`m2-4`)**: Cached `Account.balance` is verified against the historical sum of double-entry rows via `/api/v1/accounts/reconcile/all`, immediately flagging discrepancies.
+- **Automated Balance Reconciliation**: Cached `Account.balance` is verified against the historical sum of double-entry rows via `/api/v1/accounts/reconcile/all`, immediately flagging discrepancies.
 
 ### 2. Deadlock-Free Concurrency Control & Retry Logic
 - High-frequency transfers between account pairs in reverse directions (e.g., Alice $\to$ Bob and Bob $\to$ Alice simultaneously) can trigger circular wait deadlocks.
@@ -148,7 +147,7 @@ This project is built according to the comprehensive task checklist in [`documen
   ORDER BY account_id ASC 
   FOR UPDATE;
   ```
-- **Serialization & Deadlock Retry Loop (`m3-2`)**: The Ledger Service wraps transaction execution in an exponential backoff loop with randomized jitter, catching transient `40001` (Serialization Failure) and `40P01` (Deadlock) errors and resolving them transparently.
+- **Serialization & Deadlock Retry Loop**: The Ledger Service wraps transaction execution in an exponential backoff loop with randomized jitter, catching transient `40001` (Serialization Failure) and `40P01` (Deadlock) errors and resolving them transparently.
 
 ### 3. Real-Time ML Fraud Triage & Fail-Safe Fallback
 - **Feature Pipeline**:
@@ -162,7 +161,7 @@ This project is built according to the comprehensive task checklist in [`documen
   - `50 <= Risk Score <= 80`: **`REVIEW`** $\to$ Transfer allowed; `FRAUD_ALERT` generated for analyst triage.
   - `Risk Score > 80`: **`ROLLBACK`** $\to$ Transfer aborted, status `ROLLED_BACK`, source account marked `FROZEN`.
 - **Fail-Safe Fallback**: If the ML model artifact is missing or prediction encounters latency, the system safely defaults to a deterministic rule-based fallback (`amount > ₹50,000` or `velocity > 5` $\to$ REVIEW).
-- **Evaluation Performance (`m11-3`)**: 99.70% Accuracy, 93.98% Precision, 100.00% Recall, and 0.9690 F1-Score.
+- **Evaluation Performance**: 99.70% Accuracy, 93.98% Precision, 100.00% Recall, and 0.9690 F1-Score.
 
 ### 4. Tamper-Evident SHA-256 Audit Log
 - All mutations to sensitive tables (`ACCOUNT`, `TRANSACTION`, `LEDGER_ENTRY`) emit append-only audit records via triggers.
@@ -177,7 +176,7 @@ This project is built according to the comprehensive task checklist in [`documen
 - An asynchronous daemon worker polls `PENDING` outbox events and updates:
   - **Redis 7**: Atomic increments of velocity counters (`INCR`, `EXPIRE`).
   - **MongoDB 6**: Upserts immutable fraud evidence documents (`alert_id` unique key).
-- Implements exponential backoff with a 5-attempt retry limit and full fault tolerance against simulated NoSQL failures (`m5-5`).
+- Implements exponential backoff with a 5-attempt retry limit and full fault tolerance against simulated NoSQL failures.
 
 ### 6. Role-Based Access Control (RBAC)
 Endpoints enforce privilege tiers via the `X-User-Role` HTTP header:
@@ -234,7 +233,7 @@ Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-/
 │           └── transfer.html    # Funds transfer terminal with real-time triage
 ├── benchmarking/
 │   ├── demo_concurrency.py      # Multi-threaded deadlock-prevention script
-│   ├── evaluate_fraud_metrics.py# ML Precision, Recall, F1 evaluation script (m11-3)
+│   ├── evaluate_fraud_metrics.py# ML Precision, Recall, F1 evaluation script
 │   ├── explain_reports/         # Comprehensive database performance analyses
 │   │   ├── fraud_model_metrics.md # Isolation Forest validation metrics (Precision/Recall/F1)
 │   │   ├── index_benchmarks.md  # B-Tree index scan cost reductions
@@ -251,9 +250,9 @@ Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-/
 │   ├── dbmsfinal_synopsis.docx  # 2-page project synopsis
 │   ├── ER_Diagram_Fraud_Ledger_v2.png # Chen-style Entity-Relationship diagram
 │   ├── Financial_Ledger_ER_Diagram_and_Schema.modified.pdf # Relational mapping specification
-│   ├── Fraud Ledger — Project Checklist.html # Interactive 52-task verification checklist (100%)
-│   ├── Final_Project_Report.md  # Comprehensive academic project report (m12-3)
-│   ├── Demo_Script_and_Viva_QA.md # Step-by-step demo script & viva questions (m12-4)
+│   ├── Fraud Ledger — Project Checklist.html # Interactive verification checklist
+│   ├── Final_Project_Report.md  # Comprehensive project report
+│   ├── Demo_Script_and_Viva_QA.md # Step-by-step demo script & viva questions
 │   └── System_Requirements_Financial_Ledger_Fraud_Triage.docx # System requirements specification
 ├── tests/                       # Pytest verification suite
 │   ├── conftest.py              # Test database fixtures & offline bypass
@@ -261,7 +260,7 @@ Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-/
 │   ├── test_concurrency.py      # Concurrent row locking & race condition tests
 │   ├── test_fraud.py            # Fraud engine & fail-safe fallback tests
 │   ├── test_ledger.py           # Double-entry balancing & reconciliation tests
-│   ├── test_outbox.py           # Outbox retry & NoSQL failure simulation tests (m5-5)
+│   ├── test_outbox.py           # Outbox retry & NoSQL failure simulation tests
 │   └── test_security.py         # RBAC role gating tests
 ├── requirements.txt             # Python dependencies
 ├── .gitignore                   # Ignored files (virtualenvs, databases, logs)
