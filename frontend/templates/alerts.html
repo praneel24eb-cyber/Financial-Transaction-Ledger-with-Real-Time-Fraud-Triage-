@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}Fraud Alerts — Analyst Dashboard | LedgerGuard{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:2rem;">
+  <h1 class="page-title">🚨 Fraud Alerts — Analyst Dashboard</h1>
+  <p class="page-subtitle">Transactions scoring 50–80 on the Isolation Forest model are queued here for human analyst review. Evidence is synced asynchronously from PostgreSQL to MongoDB via the transactional outbox.</p>
+</div>
+
+<!-- Filter Bar -->
+<div class="glass-card" style="margin-bottom:1.5rem; padding:1.1rem 1.75rem;">
+  <div style="display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap;">
+    <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.07em;">Filters</span>
+    <div style="display:flex; align-items:center; gap:0.5rem;">
+      <label class="form-label" style="margin:0; white-space:nowrap; font-size:0.82rem;">Severity:</label>
+      <select id="filter-severity" class="form-select" style="width:auto; padding:0.45rem 0.8rem; font-size:0.85rem;" onchange="filterAlerts()">
+        <option value="">All</option>
+        <option value="HIGH">HIGH</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="LOW">LOW</option>
+      </select>
+    </div>
+    <div style="display:flex; align-items:center; gap:0.5rem;">
+      <label class="form-label" style="margin:0; white-space:nowrap; font-size:0.82rem;">Status:</label>
+      <select id="filter-status" class="form-select" style="width:auto; padding:0.45rem 0.8rem; font-size:0.85rem;" onchange="filterAlerts()">
+        <option value="">All</option>
+        <option value="OPEN">OPEN</option>
+        <option value="REVIEWED">REVIEWED</option>
+      </select>
+    </div>
+    <span id="filter-count" style="font-size:0.85rem; color:var(--text-muted); margin-left:auto; font-weight:600;"></span>
+  </div>
+</div>
+
+<!-- Alert Queue Table -->
+<div class="glass-card">
+  <div class="section-heading">
+    <span class="section-title">Alert Queue</span>
+    <span class="badge badge-warning" style="font-size:0.82rem; padding:0.3rem 0.8rem;">Analyst Workspace</span>
+  </div>
+  <div class="table-container">
+    <table class="custom-table">
+      <thead>
+        <tr>
+          <th>Alert ID</th>
+          <th>Result ID</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Risk Score</th>
+          <th>ML Evidence (MongoDB)</th>
+          <th>Raised At</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="alerts-body">
+        {% for alert in alerts %}
+        <tr class="alert-row" data-severity="{{ alert.severity }}" data-status="{{ alert.status }}">
+          <td><code>#{{ alert.alert_id }}</code></td>
+          <td><code style="color:var(--accent-cyan);">#{{ alert.result_id }}</code></td>
+          <td>
+            {% if alert.severity == 'HIGH' %}
+              <span class="badge badge-danger">HIGH</span>
+            {% elif alert.severity == 'LOW' %}
+              <span class="badge badge-success">LOW</span>
+            {% else %}
+              <span class="badge badge-warning">MEDIUM</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if alert.status == 'OPEN' %}
+              <span class="badge badge-warning">OPEN</span>
+            {% elif alert.status == 'REVIEWED' %}
+              <span class="badge badge-success">REVIEWED</span>
+            {% else %}
+              <span class="badge badge-purple">{{ alert.status }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if alert.evidence %}
+              {% set rs = alert.evidence.risk_score %}
+              <div style="display:inline-flex; align-items:center; gap:0.4rem;">
+                <div style="width:42px; height:42px; border-radius:50%; border:2px solid
+                  {% if rs > 70 %}var(--accent-rose){% elif rs > 50 %}var(--accent-amber){% else %}var(--accent-emerald){% endif %};
+                  display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.78rem;
+                  color:{% if rs > 70 %}var(--accent-rose){% elif rs > 50 %}var(--accent-amber){% else %}var(--accent-emerald){% endif %};">
+                  {{ rs }}
+                </div>
+                <span style="font-size:0.72rem; color:var(--text-dim);">/100</span>
+              </div>
+            {% else %}
+              <span style="color:var(--text-dim); font-size:0.82rem;">—</span>
+            {% endif %}
+          </td>
+          <td style="max-width:270px; font-size:0.8rem; color:var(--text-muted);">
+            {% if alert.evidence %}
+              <div style="font-weight:700; color:var(--text-main); margin-bottom:0.2rem;">{{ alert.evidence.decision }}</div>
+              <div>{{ alert.evidence.explanation }}</div>
+            {% else %}
+              <span style="color:var(--text-dim);">⏳ Syncing via Outbox...</span>
+            {% endif %}
+          </td>
+          <td style="font-size:0.82rem; color:var(--text-muted);">{{ alert.created_at }}</td>
+          <td>
+            {% if alert.status == 'OPEN' %}
+              <button class="btn btn-secondary" style="padding:0.4rem 0.9rem; font-size:0.8rem;"
+                onclick="openReviewPanel(
+                  '{{ alert.alert_id }}',
+                  '{{ alert.severity }}',
+                  '{{ alert.result_id }}',
+                  {% if alert.evidence %}'{{ alert.evidence.risk_score }}', '{{ alert.evidence.decision }}', '{{ alert.evidence.explanation | replace("'", "&#39;") }}'{% else %}'—', '—', '—'{% endif %}
+                )">
+                Review
+              </button>
+            {% else %}
+              <span style="color:var(--text-dim); font-size:0.82rem;">✓ Done</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" style="text-align:center; color:var(--text-muted); padding:3rem;">
+            🎉 No fraud alerts in queue. All clear.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Side Panel Overlay -->
+<div class="side-panel-overlay" id="panel-overlay" onclick="closeReviewPanel()"></div>
+
+<!-- Analyst Review Side Panel -->
+<div class="side-panel" id="review-panel">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.75rem;">
+    <h3 style="font-size:1.15rem; font-weight:700;">Submit Analyst Review</h3>
+    <button onclick="closeReviewPanel()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.6rem; line-height:1; padding:0.1rem 0.3rem;">×</button>
+  </div>
+
+  <input type="hidden" id="panel-alert-id">
+
+  <!-- Alert Context Card -->
+  <div class="evidence-card" style="margin-bottom:1.5rem;">
+    <div style="font-size:0.72rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:0.75rem;">Alert Context (from PostgreSQL + MongoDB)</div>
+    <div class="evidence-row"><span class="evidence-key">Alert ID</span><span class="evidence-val" id="p-alert-id">—</span></div>
+    <div class="evidence-row"><span class="evidence-key">Result ID</span><span class="evidence-val" id="p-result-id">—</span></div>
+    <div class="evidence-row"><span class="evidence-key">Severity</span><span class="evidence-val" id="p-severity">—</span></div>
+    <div class="evidence-row"><span class="evidence-key">Risk Score</span><span class="evidence-val" id="p-risk">—</span></div>
+    <div class="evidence-row"><span class="evidence-key">ML Decision</span><span class="evidence-val" id="p-decision">—</span></div>
+    <div class="evidence-row" style="border-bottom:none; align-items:flex-start;">
+      <span class="evidence-key" style="padding-top:0.2rem;">Explanation</span>
+      <span class="evidence-val" id="p-explanation" style="font-size:0.78rem; max-width:220px; text-align:right; line-height:1.4;">—</span>
+    </div>
+  </div>
+
+  <!-- Review Form -->
+  <div class="form-group">
+    <label class="form-label">Analyst ID</label>
+    <input type="number" id="panel-analyst-id" class="form-input" value="1" min="1" required>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Review Decision</label>
+    <select id="panel-decision" class="form-select">
+      <option value="CONFIRM_FRAUD">CONFIRM_FRAUD — Confirm suspicious activity</option>
+      <option value="FALSE_POSITIVE">FALSE_POSITIVE — Legitimate user transfer</option>
+      <option value="ESCALATE">ESCALATE — Send to Senior Security Operations</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Analyst Notes (optional)</label>
+    <textarea id="panel-notes" class="form-input" rows="3"
+      placeholder="Context, rule references, or observations..."
+      style="resize:vertical; font-family:'Inter',sans-serif; line-height:1.5;"></textarea>
+  </div>
+
+  <div style="display:flex; gap:0.75rem; margin-top:1.5rem;">
+    <button class="btn btn-secondary" onclick="closeReviewPanel()" style="flex:1;">Cancel</button>
+    <button class="btn btn-primary" onclick="submitReview()" style="flex:2;" id="review-submit-btn">
+      Submit Decision
+    </button>
+  </div>
+</div>
+
+<script>
+function filterAlerts() {
+  const sev = document.getElementById('filter-severity').value;
+  const sta = document.getElementById('filter-status').value;
+  const rows = document.querySelectorAll('#alerts-body tr.alert-row');
+  let visible = 0;
+  rows.forEach(row => {
+    const show = (!sev || row.dataset.severity === sev) && (!sta || row.dataset.status === sta);
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('filter-count').textContent = visible + ' alert(s) shown';
+}
+
+function openReviewPanel(alertId, severity, resultId, riskScore, decision, explanation) {
+  document.getElementById('panel-alert-id').value = alertId;
+  document.getElementById('p-alert-id').textContent = '#' + alertId;
+  document.getElementById('p-result-id').textContent = '#' + resultId;
+  document.getElementById('p-severity').textContent = severity;
+  document.getElementById('p-risk').textContent = riskScore !== '—' ? riskScore + ' / 100' : '—';
+  document.getElementById('p-decision').textContent = decision;
+  document.getElementById('p-explanation').textContent = explanation;
+  document.getElementById('review-panel').classList.add('open');
+  document.getElementById('panel-overlay').classList.add('open');
+}
+
+function closeReviewPanel() {
+  document.getElementById('review-panel').classList.remove('open');
+  document.getElementById('panel-overlay').classList.remove('open');
+}
+
+async function submitReview() {
+  const alertId = document.getElementById('panel-alert-id').value;
+  const analystId = parseInt(document.getElementById('panel-analyst-id').value);
+  const decision = document.getElementById('panel-decision').value;
+  const notes = document.getElementById('panel-notes').value;
+  const btn = document.getElementById('review-submit-btn');
+
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>&nbsp;Submitting...';
+
+  try {
+    const res = await fetch(`/api/v1/fraud/alerts/${alertId}/review`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({analyst_id: analystId, decision: decision, notes: notes})
+    });
+
+    if (res.ok) {
+      showToast('Review submitted successfully.', 'success');
+      closeReviewPanel();
+      // Fade out the reviewed alert row
+      const rows = document.querySelectorAll('#alerts-body tr.alert-row');
+      rows.forEach(row => {
+        const firstCode = row.querySelector('code');
+        if (firstCode && firstCode.textContent === '#' + alertId) {
+          row.style.transition = 'opacity 0.5s ease';
+          row.style.opacity = '0.35';
+          setTimeout(() => {
+            // Update status badge in-place instead of removing
+            const statusCell = row.cells[3];
+            if (statusCell) statusCell.innerHTML = '<span class="badge badge-success">REVIEWED</span>';
+            const actionCell = row.cells[7];
+            if (actionCell) actionCell.innerHTML = '<span style="color:var(--text-dim);font-size:0.82rem;">✓ Done</span>';
+            row.dataset.status = 'REVIEWED';
+            row.style.opacity = '1';
+          }, 600);
+        }
+      });
+    } else {
+      const err = await res.json();
+      showToast('Error: ' + (err.detail || 'Unknown error'), 'error');
+    }
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Submit Decision';
+  }
+}
+
+// Initialize filter count on load
+document.addEventListener('DOMContentLoaded', () => {
+  const rows = document.querySelectorAll('#alerts-body tr.alert-row');
+  document.getElementById('filter-count').textContent = rows.length + ' alert(s)';
+});
+</script>
+{% endblock %}

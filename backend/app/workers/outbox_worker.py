@@ -110,13 +110,22 @@ outbox_worker = OutboxWorker()
 
 def run_outbox_worker_loop(poll_interval: float = 2.0):
     logger.info("Starting Outbox Worker loop...")
+    db_warned = False
     while True:
         try:
             count = outbox_worker.process_pending_events()
             if count > 0:
                 logger.info(f"Outbox Worker processed {count} events successfully.")
+            db_warned = False
         except Exception as e:
-            logger.error(f"Outbox Worker loop error: {e}")
-            time.sleep(5.0)
+            err_msg = str(e)
+            if "connection to server at" in err_msg or "timeout expired" in err_msg:
+                if not db_warned:
+                    logger.warning("Outbox Worker: PostgreSQL is offline. Waiting for database to connect...")
+                    db_warned = True
+                time.sleep(10.0)
+            else:
+                logger.error(f"Outbox Worker loop error: {e}")
+                time.sleep(5.0)
             continue
         time.sleep(poll_interval)

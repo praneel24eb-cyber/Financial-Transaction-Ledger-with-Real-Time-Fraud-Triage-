@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}LedgerGuard | LedgerGuard{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="/" class="logo">
+        <div class="logo-icon">LG</div>
+        <span>LedgerGuard</span>
+      </a>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">🏠 Dashboard</a></li>
+          <li><a href="/ui/transfer" class="nav-link {% if active_page == 'transfer' %}active{% endif %}">💸
+              Transfer</a></li>
+          <li><a href="/ui/history" class="nav-link {% if active_page == 'history' %}active{% endif %}">📒 Ledger</a>
+          </li>
+          <li><a href="/ui/alerts" class="nav-link {% if active_page == 'alerts' %}active{% endif %}">🚨 Fraud
+              Alerts</a></li>
+          <li><a href="/ui/audit" class="nav-link {% if active_page == 'audit' %}active{% endif %}">🔒 Audit Chain</a>
+          </li>
+          <li><a href="/ui/benchmarks" class="nav-link {% if active_page == 'benchmarks' %}active{% endif %}">⚡
+              Benchmarks</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content Body -->
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>Financial Transaction Ledger with Real-Time Fraud Triage &nbsp;•&nbsp; PostgreSQL 15+ Source of Truth
+      &nbsp;•&nbsp; Isolation Forest ML Fraud Scoring &nbsp;•&nbsp; SHA-256 Hash Chain Audit</p>
+  </footer>
+
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
+
+  <script>
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const icons = { success: '✅', warning: '⚠️', error: '❌' };
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.innerHTML = `<span>${icons[type]}</span><span>${message}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 4200);
+    }
+  </script>
+
+</body>
+
+</html>

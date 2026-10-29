@@ -32,14 +32,15 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Financial Ledger PostgreSQL Database & Models...")
     try:
         db_manager.init_db()
+        count = 0
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) as cnt FROM ACCOUNT;")
                 row = cur.fetchone()
                 count = row['cnt'] if row else 0
-                if count == 0:
-                    logger.info("Empty database detected. Seeding initial synthetic records & training model...")
-                    seed_database()
+        if count == 0:
+            logger.info("Empty database detected. Seeding initial synthetic records & training model...")
+            seed_database()
     except Exception as e:
         logger.warning(f"Database connection or init on startup: {e}")
 
@@ -60,8 +61,10 @@ app = FastAPI(
 
 # Static & Templates setup
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "..", "frontend", "static")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "..", "frontend", "templates")
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
+STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
+TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -103,9 +106,9 @@ def page_dashboard(request: Request):
         total_accounts, total_balance, open_alerts, outbox_pending, accs = 0, 0.0, 0, 0, []
 
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
+        request=request,
+        name="index.html",
+        context={
             "active_page": "dashboard",
             "total_accounts": total_accounts,
             "total_balance": total_balance,
@@ -124,7 +127,7 @@ def page_transfer(request: Request):
                 accs = [dict(a) for a in cur.fetchall()]
     except Exception:
         accs = []
-    return templates.TemplateResponse("transfer.html", {"request": request, "active_page": "transfer", "accounts": accs})
+    return templates.TemplateResponse(request=request, name="transfer.html", context={"active_page": "transfer", "accounts": accs})
 
 @app.get("/ui/history", response_class=HTMLResponse)
 def page_history(request: Request, account_id: int = Query(default=None)):
@@ -157,9 +160,9 @@ def page_history(request: Request, account_id: int = Query(default=None)):
         accs, entries = [], []
 
     return templates.TemplateResponse(
-        "history.html",
-        {
-            "request": request,
+        request=request,
+        name="history.html",
+        context={
             "active_page": "history",
             "accounts": accs,
             "selected_account": account_id,
@@ -174,7 +177,7 @@ def page_alerts(request: Request):
         alerts = list_fraud_alerts()
     except Exception:
         alerts = []
-    return templates.TemplateResponse("alerts.html", {"request": request, "active_page": "alerts", "alerts": alerts})
+    return templates.TemplateResponse(request=request, name="alerts.html", context={"active_page": "alerts", "alerts": alerts})
 
 @app.get("/ui/audit", response_class=HTMLResponse)
 def page_audit(request: Request):
@@ -185,12 +188,12 @@ def page_audit(request: Request):
                 rows = [dict(r) for r in cur.fetchall()]
     except Exception:
         rows = []
-    return templates.TemplateResponse("audit.html", {"request": request, "active_page": "audit", "audit_rows": rows})
+    return templates.TemplateResponse(request=request, name="audit.html", context={"active_page": "audit", "audit_rows": rows})
 
 @app.get("/ui/benchmarks", response_class=HTMLResponse)
 def page_benchmarks(request: Request):
     report = get_benchmark_report()
-    return templates.TemplateResponse("benchmarks.html", {"request": request, "active_page": "benchmarks", "benchmarks": report})
+    return templates.TemplateResponse(request=request, name="benchmarks.html", context={"active_page": "benchmarks", "benchmarks": report})
 
 if __name__ == "__main__":
     import uvicorn

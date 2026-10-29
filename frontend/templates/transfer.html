@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Money Transfer | LedgerGuard{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:2rem;">
+  <h1 class="page-title">💸 Customer Transfer Portal</h1>
+  <p class="page-subtitle">Initiate an atomic PostgreSQL transfer with real-time Isolation Forest fraud scoring. Every transfer creates balanced DEBIT and CREDIT ledger entries.</p>
+</div>
+
+<div style="max-width:820px; margin:0 auto;">
+  <div class="glass-card">
+    <div class="section-heading">
+      <span class="section-title">Initiate Transfer</span>
+      <span class="badge badge-purple">Isolation Forest v1.0 Active</span>
+    </div>
+
+    <form id="transfer-form" style="display:flex; flex-direction:column; gap:1.25rem;">
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">From Account</label>
+          <select id="src_acc" name="source_account_id" class="form-select" required>
+            {% for acc in accounts %}
+              <option value="{{ acc.account_id }}">Account #{{ acc.account_id }} (Cust #{{ acc.customer_id }}) — ₹{{ "%.2f"|format(acc.balance) }} [{% if acc.status == 'ACTIVE' %}Active{% else %}{{ acc.status }}{% endif %}]</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">To Account</label>
+          <select id="dst_acc" name="destination_account_id" class="form-select" required>
+            {% for acc in accounts %}
+              <option value="{{ acc.account_id }}" {% if loop.index == 2 %}selected{% endif %}>Account #{{ acc.account_id }} (Cust #{{ acc.customer_id }}) — ₹{{ "%.2f"|format(acc.balance) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Amount (₹)</label>
+          <input type="number" step="0.01" id="amount" name="amount" class="form-input" value="2500.00" min="1" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Device ID</label>
+          <input type="number" id="device_id" name="device_id" class="form-input" value="1" min="1" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">PostgreSQL Isolation Level</label>
+        <select id="isolation_level" class="form-select">
+          <option value="READ COMMITTED" selected>READ COMMITTED — row-level locks on account_id ASC (Default)</option>
+          <option value="REPEATABLE READ">REPEATABLE READ — transaction snapshot isolation</option>
+          <option value="SERIALIZABLE">SERIALIZABLE — strict SSI predicate locks</option>
+        </select>
+      </div>
+
+      <div style="display:flex; gap:1rem; margin-top:0.5rem;">
+        <button type="button" onclick="submitTransfer()" class="btn btn-primary" style="flex:1;" id="submit-btn">
+          Run Fraud Triage &amp; Transfer
+        </button>
+        <button type="button" onclick="simulateHighRisk()" class="btn btn-danger" title="Set amount=75000, device=999 to trigger rollback">
+          🎯 Simulate High Risk
+        </button>
+      </div>
+    </form>
+
+    <!-- Result Area -->
+    <div id="triage-output" style="margin-top:2rem; display:none;"></div>
+  </div>
+</div>
+
+<script>
+async function submitTransfer() {
+  const src = document.getElementById('src_acc').value;
+  const dst = document.getElementById('dst_acc').value;
+  const amt = parseFloat(document.getElementById('amount').value);
+  const dev = parseInt(document.getElementById('device_id').value);
+  const iso = document.getElementById('isolation_level').value;
+  const btn = document.getElementById('submit-btn');
+  const outputDiv = document.getElementById('triage-output');
+
+  if (src === dst) {
+    showToast('Source and destination accounts cannot be the same.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div>&nbsp;Processing...';
+  outputDiv.style.display = 'block';
+  outputDiv.innerHTML = '<div style="color:var(--text-muted);padding:1rem;display:flex;align-items:center;gap:0.75rem;"><div class="spinner"></div> Evaluating features &amp; running Isolation Forest model...</div>';
+
+  try {
+    const response = await fetch('/api/v1/transactions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        source_account_id: parseInt(src),
+        destination_account_id: parseInt(dst),
+        amount: amt,
+        device_id: dev,
+        isolation_level: iso
+      })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // APPROVED (risk < 50) or REVIEW (risk 50-80)
+      if (data.decision === 'REVIEW') {
+        // Subtle "under review" — don't mention fraud
+        outputDiv.innerHTML = `
+          <div class="result-review">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
+              <div>
+                <h4 style="font-weight:700; font-size:1.1rem; margin-bottom:0.25rem;">Transaction Submitted</h4>
+                <p style="color:var(--text-muted); font-size:0.9rem;">Your transaction is being processed.</p>
+              </div>
+              <span class="badge badge-warning" style="flex-shrink:0;">Under Review</span>
+            </div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">
+              Transaction ID: <code>#${data.txn_id}</code>
+            </div>
+          </div>`;
+        showToast('Transaction submitted. It is under review.', 'warning');
+      } else {
+        // APPROVED clean
+        outputDiv.innerHTML = `
+          <div class="result-approved">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
+              <div>
+                <h4 style="font-weight:700; font-size:1.1rem; color:var(--accent-emerald); margin-bottom:0.25rem;">✅ Transfer Approved</h4>
+                <p style="color:var(--text-muted); font-size:0.9rem;">Your transfer was processed successfully.</p>
+              </div>
+              <span class="badge badge-success">APPROVED</span>
+            </div>
+            <div style="display:flex; gap:2rem; font-size:0.9rem;">
+              <div><div style="color:var(--text-muted); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;">Your New Balance</div><div style="font-size:1.3rem; font-weight:700; color:var(--accent-emerald);">₹${data.source_balance.toFixed(2)}</div></div>
+              <div><div style="color:var(--text-muted); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;">Recipient Balance</div><div style="font-size:1.3rem; font-weight:700;">₹${data.destination_balance.toFixed(2)}</div></div>
+              <div><div style="color:var(--text-muted); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;">Transaction ID</div><div style="font-family:'JetBrains Mono',monospace; font-size:0.9rem;">#${data.txn_id}</div></div>
+            </div>
+          </div>`;
+        showToast('Transfer approved successfully!', 'success');
+      }
+    } else {
+      // ROLLED BACK (risk > 80) — deliberately vague
+      outputDiv.innerHTML = `
+        <div class="result-declined">
+          <h4 style="font-weight:700; font-size:1.05rem; margin-bottom:0.5rem;">Transaction Could Not Be Completed</h4>
+          <p style="color:var(--text-muted); font-size:0.9rem;">We couldn't complete this transaction. Please contact support for assistance.</p>
+          <div style="margin-top:1rem; font-size:0.8rem; color:var(--text-dim);">Reference: contact support with your account number.</div>
+        </div>`;
+      showToast('Transaction could not be completed.', 'error');
+    }
+  } catch (err) {
+    outputDiv.innerHTML = `<div class="result-declined">Network error: ${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Run Fraud Triage &amp; Transfer';
+  }
+}
+
+function simulateHighRisk() {
+  document.getElementById('amount').value = '75000.00';
+  document.getElementById('device_id').value = '999';
+  showToast('High-risk scenario set. Submitting...', 'warning');
+  submitTransfer();
+}
+</script>
+{% endblock %}
