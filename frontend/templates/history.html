@@ -63,7 +63,7 @@
               <span class="badge badge-danger">{{ entry.status }}</span>
             {% endif %}
           </td>
-          <td style="color:var(--text-muted); font-size:0.82rem;">{{ entry.created_at }}</td>
+          <td class="utc-timestamp" data-utc="{{ entry.created_at }}" style="color:var(--text-muted); font-size:0.82rem;">{{ entry.created_at }}</td>
         </tr>
         {% else %}
         <tr>

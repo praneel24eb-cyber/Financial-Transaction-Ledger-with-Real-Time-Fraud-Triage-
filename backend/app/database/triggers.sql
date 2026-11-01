@@ -56,6 +56,9 @@ BEGIN
         v_new_data := to_jsonb(NEW);
     END IF;
 
+    -- Fix 1: Transaction-level advisory lock serializes hash chaining under concurrent inserts
+    PERFORM pg_advisory_xact_lock(99999);
+
     -- Retrieve the most recent row_hash from AUDIT_LOG
     SELECT row_hash INTO v_prev_hash
     FROM AUDIT_LOG
