@@ -35,7 +35,8 @@ class OutboxWorker:
                     FROM OUTBOX
                     WHERE status = 'PENDING' AND attempts < %s
                     ORDER BY outbox_id ASC
-                    LIMIT 20;
+                    LIMIT 20
+                    FOR UPDATE SKIP LOCKED;
                 """
                 cur.execute(query, (self.max_attempts,))
                 rows = cur.fetchall()
@@ -71,8 +72,9 @@ class OutboxWorker:
             alert_id = payload.get("alert_id")
 
             # 1. Update Redis velocity and recent device/merchant history (FR-27, FR-28)
+            # Fix 3: Pass txn_id to guarantee idempotency on retries/redeliveries
             if src_acc:
-                redis_repo.increment_velocity(src_acc, window_seconds=600)
+                redis_repo.increment_velocity(src_acc, window_seconds=600, txn_id=txn_id)
             if src_acc and device_id:
                 redis_repo.add_recent_device(src_acc, device_id)
             if src_acc and merchant_id:

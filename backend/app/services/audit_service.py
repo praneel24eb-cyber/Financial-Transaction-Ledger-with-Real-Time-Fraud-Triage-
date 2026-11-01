@@ -12,6 +12,11 @@ class AuditService:
         Inserts an append-only hash-chained row into AUDIT_LOG within an existing PostgreSQL transaction.
         """
         with conn.cursor() as cur:
+            # Fix 1: Transaction-level advisory lock serializes hash chaining under concurrent inserts
+            try:
+                cur.execute("SELECT pg_advisory_xact_lock(99999);")
+            except Exception:
+                pass
             cur.execute("SELECT row_hash FROM AUDIT_LOG ORDER BY audit_id DESC LIMIT 1;")
             row = cur.fetchone()
             prev_hash = row['row_hash'] if row and 'row_hash' in row else None
@@ -36,7 +41,7 @@ class AuditService:
         """
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT audit_id, table_name, operation, old_data, new_data, prev_hash, row_hash FROM AUDIT_LOG ORDER BY audit_id ASC;")
+                cur.execute("SELECT audit_id, table_name, operation, old_data, new_data, old_data::text as old_text, new_data::text as new_text, prev_hash, row_hash FROM AUDIT_LOG ORDER BY audit_id ASC;")
                 rows = cur.fetchall()
 
                 if not rows:
@@ -71,7 +76,12 @@ class AuditService:
                         }
 
                     # Check 2: recompute current row_hash
-                    _, recomputed_row_hash = compute_audit_hash(expected_prev_hash, table_name, operation, old_data, new_data)
+                    # Use exact database json text when available to preserve key ordering identical to trigger serialization
+                    old_txt = r.get('old_text') if r.get('old_text') is not None else (json.dumps(old_data) if old_data else '')
+                    new_txt = r.get('new_text') if r.get('new_text') is not None else (json.dumps(new_data) if new_data else '')
+                    data_to_hash = f"{expected_prev_hash}|{table_name}|{operation}|{old_txt}|{new_txt}"
+                    import hashlib
+                    recomputed_row_hash = hashlib.sha256(data_to_hash.encode('utf-8')).hexdigest()
 
                     if recomputed_row_hash != stored_row_hash:
                         return {

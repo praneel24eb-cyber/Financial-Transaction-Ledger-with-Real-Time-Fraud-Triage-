@@ -180,6 +180,8 @@ LEFT JOIN FRAUD_RESULT fr ON t.txn_id = fr.txn_id
 LEFT JOIN FRAUD_ALERT fa ON fr.result_id = fa.result_id
 GROUP BY DATE(t.initiated_at), t.txn_type, t.status;
 
+-- Fix 4: Unique index on mv_daily_transaction_summary to support REFRESH MATERIALIZED VIEW CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_daily_summary_unique ON mv_daily_transaction_summary(summary_date, txn_type, status);
 CREATE INDEX IF NOT EXISTS idx_mv_daily_summary_date ON mv_daily_transaction_summary(summary_date);
 
 -- ===================================================================

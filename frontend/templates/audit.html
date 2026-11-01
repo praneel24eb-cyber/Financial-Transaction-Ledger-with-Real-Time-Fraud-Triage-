@@ -76,7 +76,7 @@
           <td>
             <code class="hash-code hash-valid" title="{{ row.row_hash }}">{{ row.row_hash }}</code>
           </td>
-          <td style="font-size:0.82rem; color:var(--text-muted);">{{ row.created_at }}</td>
+          <td class="utc-timestamp" data-utc="{{ row.created_at }}" style="font-size:0.82rem; color:var(--text-muted);">{{ row.created_at }}</td>
           <td class="chain-indicator" style="text-align:center; font-size:1.1rem;" title="Chain link intact">✅</td>
         </tr>
         {% else %}

@@ -99,7 +99,7 @@
               <span style="color:var(--text-dim);">⏳ Syncing via Outbox...</span>
             {% endif %}
           </td>
-          <td style="font-size:0.82rem; color:var(--text-muted);">{{ alert.created_at }}</td>
+          <td class="utc-timestamp" data-utc="{{ alert.created_at }}" style="font-size:0.82rem; color:var(--text-muted);">{{ alert.created_at }}</td>
           <td>
             {% if alert.status == 'OPEN' %}
               <button class="btn btn-secondary" style="padding:0.4rem 0.9rem; font-size:0.8rem;"

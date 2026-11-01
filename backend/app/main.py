@@ -60,15 +60,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Static & Templates setup
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
-STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
-TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
+# Static & Templates setup (Fix 5: Path portability via pathlib.Path)
+from pathlib import Path
+APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = APP_DIR.parent.parent
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+STATIC_DIR = FRONTEND_DIR / "static"
+TEMPLATES_DIR = FRONTEND_DIR / "templates"
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Include API Routers
 api_prefix = "/api/v1"

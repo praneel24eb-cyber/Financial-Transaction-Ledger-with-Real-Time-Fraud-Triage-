@@ -35,7 +35,7 @@ def seed_database(num_customers: int = 10, num_accounts: int = 15):
             ]
             for tbl in tables:
                 try:
-                    cur.execute(f"TRUNCATE TABLE {tbl} CASCADE;")
+                    cur.execute(f"TRUNCATE TABLE {tbl} RESTART IDENTITY CASCADE;")
                 except Exception:
                     cur.execute(f"DELETE FROM {tbl};")
             conn.commit()

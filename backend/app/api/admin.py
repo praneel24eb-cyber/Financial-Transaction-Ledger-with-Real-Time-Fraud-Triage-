@@ -61,3 +61,24 @@ def get_benchmark_report():
             "monthly_ledger_partition": "Monthly RANGE partitioning on LEDGER_ENTRY eliminates scanning cold partitions during current month queries."
         }
     }
+
+
+@router.post("/materialized-views/refresh", dependencies=[Depends(require_admin)])
+def refresh_materialized_views():
+    """
+    Refreshes materialized views concurrently to avoid read-blocking (Fix 4).
+    Falls back to non-concurrent refresh if the view is not yet populated.
+    """
+    results = {}
+    with db_manager.get_connection() as conn:
+        with conn.cursor() as cur:
+            for mv in ["mv_account_balances", "mv_daily_transaction_summary"]:
+                try:
+                    cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {mv};")
+                    results[mv] = "Refreshed concurrently"
+                except Exception as e:
+                    conn.rollback()
+                    cur.execute(f"REFRESH MATERIALIZED VIEW {mv};")
+                    results[mv] = f"Refreshed standard (fallback: {e})"
+        conn.commit()
+    return {"status": "success", "views": results}

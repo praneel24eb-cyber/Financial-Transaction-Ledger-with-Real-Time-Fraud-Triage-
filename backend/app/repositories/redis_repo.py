@@ -24,8 +24,27 @@ class RedisRepository:
             self._memory_counters = {}
             self._memory_sets = {}
 
-    def increment_velocity(self, account_id: int, window_seconds: int = 600) -> int:
+    def increment_velocity(self, account_id: int, window_seconds: int = 600, txn_id: Optional[int] = None) -> int:
         key = f"velocity:{account_id}"
+        # Fix 3: Idempotency guard per transaction_id prevents double-counting on outbox redeliveries/retries
+        if txn_id is not None:
+            idempotency_key = f"idemp:velocity:{account_id}:{txn_id}"
+            if self.enabled:
+                try:
+                    # SET NX returns True if key was set, None/False if already exists
+                    if not self.client.set(idempotency_key, "1", nx=True, ex=window_seconds * 2):
+                        logger.info(f"Redis velocity increment skipped for already processed txn_id {txn_id}")
+                        return self.get_velocity(account_id, window_seconds)
+                except Exception as e:
+                    logger.warning(f"Redis idempotency check error: {e}")
+            else:
+                if not hasattr(self, "_memory_processed_txns"):
+                    self._memory_processed_txns = set()
+                if (account_id, txn_id) in self._memory_processed_txns:
+                    logger.info(f"In-memory velocity increment skipped for already processed txn_id {txn_id}")
+                    return self.get_velocity(account_id, window_seconds)
+                self._memory_processed_txns.add((account_id, txn_id))
+
         if self.enabled:
             try:
                 val = self.client.incr(key)

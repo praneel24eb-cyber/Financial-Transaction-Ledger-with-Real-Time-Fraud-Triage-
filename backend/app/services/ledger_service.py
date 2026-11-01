@@ -142,7 +142,15 @@ class LedgerService:
                     logger.info(f"Transfer request src={source_account_id} dst={destination_account_id} amt={amount} -> Risk Score={risk_score}, Decision={decision} (model: {model_version}) under {chosen_isolation}")
 
                     # 3. High-Risk Triage Policy: ROLLBACK & FREEZE ACCOUNT (FR-17)
+                    # Fix 2: Ledger entries and balance deduction are skipped.
+                    # Transaction status=ROLLED_BACK, Account status=FROZEN, FRAUD_RESULT, FRAUD_ALERT,
+                    # and OUTBOX are recorded and committed within a safe savepoint.
                     if decision == "ROLLBACK":
+                        try:
+                            cur.execute("SAVEPOINT rollback_savepoint;")
+                        except Exception:
+                            pass
+
                         cur.execute("UPDATE ACCOUNT SET status = 'FROZEN' WHERE account_id = %s;", (source_account_id,))
 
                         cur.execute(
@@ -181,6 +189,10 @@ class LedgerService:
                             (rb_txn_id, json.dumps(outbox_payload))
                         )
 
+                        try:
+                            cur.execute("RELEASE SAVEPOINT rollback_savepoint;")
+                        except Exception:
+                            pass
                         conn.commit()
 
                         return {

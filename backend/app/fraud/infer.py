@@ -13,13 +13,18 @@ class FraudInferenceEngine:
         self._load_model()
 
     def _load_model(self):
-        if not os.path.exists(settings.MODEL_PATH):
-            logger.warning(f"IsolationForest model file not found at {settings.MODEL_PATH}.")
+        # Fix 5: Path portability via pathlib.Path (directly in backend/app/fraud/isolation_forest.joblib)
+        from pathlib import Path
+        model_file = Path(__file__).resolve().parent / "isolation_forest.joblib"
+        target_path = str(model_file) if model_file.exists() else settings.MODEL_PATH
+
+        if not os.path.exists(target_path):
+            logger.warning(f"IsolationForest model file not found at {target_path}.")
             self.model_meta = None
             return
 
         try:
-            self.model_meta = joblib.load(settings.MODEL_PATH)
+            self.model_meta = joblib.load(target_path)
             logger.info(f"Loaded IsolationForest model version {self.model_meta.get('version')}")
         except Exception as e:
             logger.error(f"Error loading fraud model file ({e}). Model set to None for fail-safe fallback.")

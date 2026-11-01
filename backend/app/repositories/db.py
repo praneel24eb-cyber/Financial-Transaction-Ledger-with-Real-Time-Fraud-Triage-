@@ -315,6 +315,7 @@ class DatabaseManager:
 
         # Attempt PostgreSQL connection if port is open
         if psycopg2 is not None and _is_port_open(self.host, self.port):
+            conn = None
             try:
                 conn = psycopg2.connect(
                     host=self.host,
@@ -326,15 +327,17 @@ class DatabaseManager:
                     cursor_factory=RealDictCursor
                 )
                 self._use_sqlite = False
+            except Exception as pg_err:
+                logger.info(f"PostgreSQL connection failed ({pg_err}). Switching to local SQLite fallback.")
+                self._use_sqlite = True
+                self.use_postgres = False
+
+            if conn is not None:
                 try:
                     yield conn
                 finally:
                     conn.close()
                 return
-            except Exception as pg_err:
-                logger.info(f"PostgreSQL connection failed ({pg_err}). Switching to local SQLite fallback.")
-                self._use_sqlite = True
-                self.use_postgres = False
         else:
             if self._use_sqlite is None:
                 logger.info("PostgreSQL service not detected on localhost:5432. Active fallback: SQLite (ledger.db).")
