@@ -1,0 +1,72 @@
+1. Customer Portal
+
+Features
+
+Simple account selector/login (a dropdown of seeded test customers is enough for a course demo — no need for real auth)
+Account overview with live balance
+Send-money form
+Transaction history with status
+
+User inputs
+
+Select “from” account (if the customer has more than one)
+Recipient: another account number, or a merchant (for a payment)
+Amount
+Transaction type: Transfer / Payment / Withdrawal / Deposit
+
+Output displayed
+
+Immediate result of the submission:
+Approved (risk score < 50) — new balance shown instantly
+Approved, under review (score 50–80) — transaction goes through, but a subtle “under review” tag appears (customers don’t need to know this is fraud-related)
+Declined (score > 80) — a generic “couldn’t complete this transaction, please contact support” message, deliberately vague so you’re not leaking fraud-detection logic to a potential bad actor
+A transaction history table: date, counterparty, amount, direction (debit/credit), status
+Clicking a transaction expands it to show its ledger entries (useful for your own demo/debugging, optional for a real customer view)
+2. Analyst Dashboard
+
+Features
+
+Alert queue, sorted by severity/recency
+Alert detail view pulling from both PostgreSQL and MongoDB
+Review action form
+
+User inputs
+
+Filter controls: severity (Low/Medium/High), status (Open/Reviewed/Dismissed), date range
+On an alert: decision (Confirm Fraud / False Positive / Escalate) + free-text notes
+
+Output displayed
+
+Alert list: transaction amount, account, risk score, severity badge, time raised
+Alert detail page:
+Transaction context (amount, accounts, device, merchant)
+Risk score and model version
+Rule hits and feature values (pulled from Mongo_Alert_Evidence) — e.g. “velocity: 6 txns in 10 min”, “new device”, “3.2x above 30-day average”
+Prior reviews on this account, if any
+Confirmation after submitting a review, and the alert disappears from the “Open” queue
+3. Admin / Benchmark View (optional, for your demo and viva)
+
+This one isn’t something a real bank would ship, but it’s genuinely useful for showing off the DBMS-heavy parts of your project.
+
+Features
+
+Live transaction ticker
+Concurrency/performance benchmark panel
+Audit log viewer
+
+User inputs
+
+Isolation level selector (to re-run the Read Committed / Repeatable Read / Serializable comparison live)
+“Simulate concurrent load” button (triggers a batch of simultaneous transfers to demonstrate locking)
+Audit log search (by table, date, or transaction)
+
+Output displayed
+
+A live feed of transactions as they’re created (nice visual effect for a demo)
+Bar/line chart: throughput (TPS) and latency per isolation level
+Table showing EXPLAIN ANALYZE before/after indexing
+Audit log table with a “chain verified ✓” indicator — and a deliberate “corrupt a row” test button that flips the verification to ✗, visually proving the tamper-evidence works
+
+On tech choice: this maps cleanly onto the Jinja2 + HTMX stack from your software requirements table — the customer and analyst views are mostly form-submit-and-refresh pages HTMX handles well, and the live ticker/benchmark charts are the one place you’d reach for a bit of JS (or Chart.js, already in your skill list). If you’d rather keep the benchmark view separate from the main app, a small Streamlit page just for that panel is also a reasonable split, since it’s for your team and evaluators rather than real customers.
+
+Want me to turn the Customer or Analyst screen into an actual working HTML/HTMX mockup, the way I built the checklist tracker?

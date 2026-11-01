@@ -18,15 +18,16 @@ Repository: [Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-](https://
 
 - [Architectural Overview](#-architectural-overview)
 - [System Architecture Diagram](#-system-architecture-diagram)
+- [Features in this Project](#-features-in-this-project)
 - [Key Engineering Pillars](#-key-engineering-pillars)
-  - [1. ACID Double-Entry Bookkeeping](#1-acid-double-entry-bookkeeping)
-  - [2. Deadlock-Free Concurrency Control](#2-deadlock-free-concurrency-control)
+  - [1. ACID Double-Entry Bookkeeping & Reconciliation](#1-acid-double-entry-bookkeeping--reconciliation)
+  - [2. Deadlock-Free Concurrency Control & Retry Logic](#2-deadlock-free-concurrency-control--retry-logic)
   - [3. Real-Time ML Fraud Triage & Fail-Safe Fallback](#3-real-time-ml-fraud-triage--fail-safe-fallback)
   - [4. Tamper-Evident SHA-256 Audit Log](#4-tamper-evident-sha-256-audit-log)
   - [5. Transactional Outbox & NoSQL Synchronization](#5-transactional-outbox--nosql-synchronization)
   - [6. Role-Based Access Control (RBAC)](#6-role-based-access-control-rbac)
 - [Repository Structure](#-repository-structure)
-- [Database Schema & Partitioning](#-database-schema--partitioning)
+- [Database Schema, Partitioning & Materialized Views](#-database-schema-partitioning--materialized-views)
 - [Interactive UI Dashboard](#-interactive-ui-dashboard)
 - [API Reference](#-api-reference)
 - [Quickstart & Execution Guide](#-quickstart--execution-guide)
@@ -34,8 +35,9 @@ Repository: [Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-](https://
   - [Option B: Local Environment Setup](#option-b-local-environment-setup)
 - [Verification & Benchmarks](#-verification--benchmarks)
   - [1. Pytest Test Suite](#1-pytest-test-suite)
-  - [2. Concurrency & Deadlock Prevention Demo](#2-concurrency--deadlock-prevention-demo)
-  - [3. Database Performance Reports](#3-database-performance-reports)
+  - [2. ML Fraud Model Evaluation (Precision, Recall, F1)](#2-ml-fraud-model-evaluation-precision-recall-f1)
+  - [3. Concurrency & Deadlock Prevention Demo](#3-concurrency--deadlock-prevention-demo)
+  - [4. Database Performance Reports](#4-database-performance-reports)
 - [License](#-license)
 
 ---
@@ -44,10 +46,10 @@ Repository: [Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-](https://
 
 This system addresses core distributed transaction and data-integrity challenges faced by modern fintech platforms:
 
-1. **Relational Source of Truth (PostgreSQL 15+)**: All monetary movements obey fundamental double-entry principles (every debit has an equal credit). Zero negative balances, strict foreign keys, and partition pruning on ledger entries.
-2. **In-Memory Speed Layer (Redis 7+)**: Low-latency rolling velocity tracking (e.g., transaction count per 1-hour window) to feed real-time feature extractors.
-3. **NoSQL Document Store (MongoDB 6+)**: Unstructured fraud evidence documents and historical risk analytics synchronized asynchronously.
-4. **Predictive Safety (Scikit-Learn Isolation Forest)**: Real-time unsupervised anomaly scoring that categorizes transfers into `APPROVE`, `APPROVE & ALERT`, or `ROLLBACK & FLAG` with deterministic fallback protection.
+1. **Relational Source of Truth (PostgreSQL 15+)**: All monetary movements obey fundamental double-entry principles (every debit has an equal credit). Zero negative balances, strict foreign keys, range partition pruning on ledger entries, and automated balance reconciliation.
+2. **In-Memory Speed Layer (Redis 7+)**: Low-latency rolling velocity tracking (e.g., transaction count per 10-minute / 1-hour window) to feed real-time feature extractors in sub-millisecond time.
+3. **NoSQL Document Store (MongoDB 6+)**: Semi-structured fraud evidence documents and historical risk analytics synchronized asynchronously via the Transactional Outbox.
+4. **Predictive Safety (Scikit-Learn Isolation Forest)**: Real-time unsupervised anomaly scoring that categorizes transfers into `APPROVE`, `REVIEW`, or `ROLLBACK` with deterministic fallback protection.
 
 ---
 
@@ -56,24 +58,25 @@ This system addresses core distributed transaction and data-integrity challenges
 ```mermaid
 flowchart TD
     subgraph Client["Client Tier"]
-        UI["Modern Glassmorphism UI<br/>(Dashboard, Transfer, Alerts, Audit)"]
+        UI["Modern Glassmorphism UI<br/>(Dashboard, Transfer, Alerts, Audit, Benchmarks)"]
         API["REST API Clients<br/>(FastAPI with RBAC Headers)"]
     end
 
     subgraph Service["Application Core (FastAPI)"]
         AUTH["RBAC Gatekeeper<br/>(customer, analyst, admin)"]
-        LEDGER["Double-Entry Ledger Engine"]
-        FRAUD["ML Fraud Triage Engine<br/>(Isolation Forest v1.0)"]
-        AUDIT["Tamper-Evident Audit Service"]
+        LEDGER["Double-Entry Ledger Engine<br/>(Ascending Lock Ordering & Retry Loop)"]
+        FRAUD["ML Fraud Triage Engine<br/>(Isolation Forest v1.0 + Rule Fallback)"]
+        AUDIT["Tamper-Evident Audit Service<br/>(SHA-256 Hash Chain Verifier)"]
     end
 
     subgraph PostgreSQL["PostgreSQL 15+ (Source of Truth)"]
         ACCOUNTS["ACCOUNT Table<br/>(SELECT ... FOR UPDATE)"]
         TXNS["TRANSACTION Table"]
         LEDGER_PART["LEDGER_ENTRY Table<br/>(Range-Partitioned by Month)"]
-        OUTBOX["OUTBOX_EVENT Table<br/>(Transactional Outbox)"]
-        AUDIT_TBL["AUDIT_LOG Table<br/>(SHA-256 Hash Chained)"]
+        OUTBOX["OUTBOX Table<br/>(Transactional Outbox)"]
+        AUDIT_TBL["AUDIT_LOG Table<br/>(Append-Only, SHA-256 Chained)"]
         TRIGGER["Deferred Constraint Trigger<br/>SUM(debits) = SUM(credits)"]
+        MVIEWS["Materialized Views<br/>mv_account_balances & mv_daily_summary"]
     end
 
     subgraph OutboxWorker["Outbox Dispatcher (Worker Daemon)"]
@@ -95,23 +98,46 @@ flowchart TD
     LEDGER_PART --- TRIGGER
     LEDGER -->|Record Outbox Event| OUTBOX
     LEDGER -->|Cryptographic Hash| AUDIT_TBL
+    LEDGER --- MVIEWS
 
     WORKER -->|Poll PENDING Events| OUTBOX
-    WORKER -->|INCR Velocity| REDIS
+    WORKER -->|INCR Velocity with TTL| REDIS
     WORKER -->|Upsert Evidence Document| MONGO
 ```
 
 ---
 
+## ✨ Features in this Project
+
+The system implements an end-to-end financial transaction ledger and automated fraud protection architecture:
+
+| Subsystem / Feature | Key Engineering Capabilities |
+|---|---|
+| **Relational Schema & Integrity Design** | Normalized relational schema in 3NF/BCNF with strict domain `CHECK` constraints (non-negative balances, enumerated statuses) and cascading/restricting foreign keys across Customer, Account, Device, and Merchant entities. |
+| **Double-Entry Ledger Engine** | Absolute conservation of funds ($\sum \text{debits} = \sum \text{credits}$) enforced via PostgreSQL deferred constraint triggers, immutable ledger legs, cached account balances, and automated reconciliation routines. |
+| **Deadlock-Free Concurrency Control** | Deterministic ascending row-level locking (`account_id ASC`) with `SELECT ... FOR UPDATE` eliminating circular wait deadlocks, coupled with an automatic exponential backoff retry loop for serialization conflicts (`40001` / `40P01`). |
+| **Real-Time ML Fraud Triage** | 5-dimensional feature pipeline paired with an unsupervised Isolation Forest model (99.70% accuracy, 0.9690 F1-score) delivering 3-tier real-time triage (`APPROVE` < 50, `REVIEW` 50–80, `ROLLBACK` > 80 with automatic source account freeze). |
+| **Fail-Safe Fallback Protection** | Deterministic heuristic rule fallback ensuring transactions are never blindly approved if the ML service encounters latency or exceptions. |
+| **Transactional Outbox & NoSQL Synchronization** | Guaranteed eventual consistency between PostgreSQL, Redis (rolling velocity counters), and MongoDB (unstructured fraud evidence) via an asynchronous outbox worker with retry backoff and failure recovery. |
+| **Cryptographic Audit Trail** | Tamper-evident append-only `AUDIT_LOG` with SHA-256 hash chaining (`prev_hash` $\to$ `row_hash`) and database-level privilege revocation (`REVOKE UPDATE, DELETE`) to detect retroactive mutation. |
+| **Human-in-the-Loop Analyst Workflows** | Dedicated triage queues and review state transitions (`CONFIRM_FRAUD`, `FALSE_POSITIVE`, `ESCALATE`) linking analyst findings back to alert and account states. |
+| **Performance Optimizations & Partitioning** | Monthly range partitioning on ledger entries, composite B-Tree indexes, and PostgreSQL Materialized Views (`mv_account_balances`, `mv_daily_transaction_summary`) for instant aggregations. |
+| **Role-Based Access Control (RBAC)** | Multi-tier role gating (`customer`, `analyst`, `admin`) enforced via HTTP headers across all API endpoints and operations. |
+| **Interactive UI Dashboard** | Glassmorphism web UI with real-time transfer terminals, live transaction history, analyst triage desks, audit chain verifiers, and benchmark visualizers. |
+| **Automated Verification Harness** | Full automated test harness covering concurrency race conditions, ledger balancing, fault-injection outbox retries, and cryptographic tamper detection. |
+
+---
+
 ## ⚡ Key Engineering Pillars
 
-### 1. ACID Double-Entry Bookkeeping
+### 1. ACID Double-Entry Bookkeeping & Reconciliation
 - Every transfer operation generates a balanced pair: exactly one `DEBIT` and one `CREDIT` entry in `LEDGER_ENTRY`.
 - Enforced at the database level via a PostgreSQL **deferred constraint trigger**:
   $$\sum \text{debits} = \sum \text{credits}$$
 - Balance checks prevent overdrafts (`CHECK (balance >= 0)`).
+- **Automated Balance Reconciliation**: Cached `Account.balance` is verified against the historical sum of double-entry rows via `/api/v1/accounts/reconcile/all`, immediately flagging discrepancies.
 
-### 2. Deadlock-Free Concurrency Control
+### 2. Deadlock-Free Concurrency Control & Retry Logic
 - High-frequency transfers between account pairs in reverse directions (e.g., Alice $\to$ Bob and Bob $\to$ Alice simultaneously) can trigger circular wait deadlocks.
 - The system enforces **deterministic ascending lock ordering** (`account_id ASC`) using `SELECT ... FOR UPDATE`:
   ```sql
@@ -121,52 +147,53 @@ flowchart TD
   ORDER BY account_id ASC 
   FOR UPDATE;
   ```
-- Guarantees zero lost updates and prevents database deadlocks under high multi-threaded contention.
+- **Serialization & Deadlock Retry Loop**: The Ledger Service wraps transaction execution in an exponential backoff loop with randomized jitter, catching transient `40001` (Serialization Failure) and `40P01` (Deadlock) errors and resolving them transparently.
 
 ### 3. Real-Time ML Fraud Triage & Fail-Safe Fallback
 - **Feature Pipeline**:
-  - Transfer amount
-  - 1-hour rolling velocity counter (cached in Redis)
-  - 30-day historical mean deviation (calculated from PostgreSQL history)
-  - Temporal signals (hour of day, night-time transfer flags)
-  - New device / fingerprint mismatch indicator
+  - Transfer amount in INR.
+  - 1-hour rolling velocity counter (cached in Redis).
+  - 30-day historical mean deviation (calculated from PostgreSQL history).
+  - Temporal signals (hour of day, night-time transfer flags).
+  - New device / fingerprint mismatch indicator.
 - **Decision Engine**:
   - `Risk Score < 50`: **`APPROVE`** $\to$ Transaction completed immediately.
-  - `50 <= Risk Score <= 80`: **`APPROVE & ALERT`** $\to$ Transfer allowed; `FRAUD_ALERT` generated for analyst triage.
-  - `Risk Score > 80`: **`ROLLBACK & FLAG`** $\to$ Transaction rolled back; source account marked `FLAGGED`.
-- **Fail-Safe Fallback**: If the model asset cannot be loaded or feature extraction fails, the transaction is **never blindly approved**. It safely defaults to `risk_score=65`, `decision='ALERT'`, and `model_version='FAILSAFE_FALLBACK'`.
+  - `50 <= Risk Score <= 80`: **`REVIEW`** $\to$ Transfer allowed; `FRAUD_ALERT` generated for analyst triage.
+  - `Risk Score > 80`: **`ROLLBACK`** $\to$ Transfer aborted, status `ROLLED_BACK`, source account marked `FROZEN`.
+- **Fail-Safe Fallback**: If the ML model artifact is missing or prediction encounters latency, the system safely defaults to a deterministic rule-based fallback (`amount > ₹50,000` or `velocity > 5` $\to$ REVIEW).
+- **Evaluation Performance**: 99.70% Accuracy, 93.98% Precision, 100.00% Recall, and 0.9690 F1-Score.
 
 ### 4. Tamper-Evident SHA-256 Audit Log
-- All mutations to sensitive tables (`ACCOUNT`, `TRANSACTION`, `LEDGER_ENTRY`) emit append-only audit records.
+- All mutations to sensitive tables (`ACCOUNT`, `TRANSACTION`, `LEDGER_ENTRY`) emit append-only audit records via triggers.
 - Each audit record is cryptographically linked to its predecessor via SHA-256 hash chaining:
   $$\text{row\_hash} = \text{SHA256}(\text{prev\_hash} \parallel \text{table} \parallel \text{operation} \parallel \text{old\_json} \parallel \text{new\_json})$$
-- The application database role possesses **`INSERT`-only permissions** on `AUDIT_LOG`.
+- The application database role possesses **`INSERT`-only permissions** on `AUDIT_LOG` (`REVOKE UPDATE, DELETE`).
 - An integrated verification algorithm scans the chain and pinpoints the exact row ID if historical data was mutated or deleted.
 
 ### 5. Transactional Outbox & NoSQL Synchronization
 - Avoids fragile Two-Phase Commit (2PC) or distributed locking.
-- Ledger transactions insert an `OUTBOX_EVENT` record inside the same PostgreSQL transaction block.
+- Ledger transactions insert an `OUTBOX` record inside the same PostgreSQL transaction block.
 - An asynchronous daemon worker polls `PENDING` outbox events and updates:
   - **Redis 7**: Atomic increments of velocity counters (`INCR`, `EXPIRE`).
-  - **MongoDB 6**: Upserts immutable fraud evidence documents (`txn_id` unique index).
-- Implements exponential backoff with a 5-attempt retry limit.
+  - **MongoDB 6**: Upserts immutable fraud evidence documents (`alert_id` unique key).
+- Implements exponential backoff with a 5-attempt retry limit and full fault tolerance against simulated NoSQL failures.
 
 ### 6. Role-Based Access Control (RBAC)
 Endpoints enforce privilege tiers via the `X-User-Role` HTTP header:
-- **`customer`**: Transfer execution, account balance lookup, own transaction history.
-- **`analyst`**: Access fraud review queues, investigate alert details, submit alert resolution (`CONFIRMED_FRAUD` / `FALSE_POSITIVE`).
-- **`admin`**: Trigger audit chain cryptographic validation, inspect benchmark reports, seed synthetic data.
+- **`customer`**: Transfer execution, account lookup, transaction history.
+- **`analyst`**: Access fraud review queues, investigate alert details, submit review determinations (`CONFIRM_FRAUD` / `FALSE_POSITIVE` / `ESCALATE`).
+- **`admin`**: Trigger cryptographic audit chain verification, balance reconciliation, inspect benchmark reports, seed synthetic data.
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-DBMS/
+Financial-Transaction-Ledger-with-Real-Time-Fraud-Triage-/
 ├── backend/
 │   ├── app/
 │   │   ├── api/                 # FastAPI API route controllers
-│   │   │   ├── accounts.py      # Account balance and status endpoints
+│   │   │   ├── accounts.py      # Account balance, listing & reconciliation endpoints
 │   │   │   ├── admin.py         # Administrative & benchmark report endpoints
 │   │   │   ├── audit.py         # Audit log query and hash verification endpoints
 │   │   │   ├── customers.py    # Customer KYC management
@@ -174,7 +201,7 @@ DBMS/
 │   │   │   ├── security.py     # Role-based access control (RBAC) dependencies
 │   │   │   └── transactions.py # Transfer execution and double-entry handlers
 │   │   ├── database/            # Database DDL, triggers & initial data
-│   │   │   ├── schema.sql       # PostgreSQL 15+ table schemas & partitions
+│   │   │   ├── schema.sql       # PostgreSQL 15+ table schemas, partitions & materialized views
 │   │   │   ├── triggers.sql     # Deferred balance triggers & audit hooks
 │   │   │   └── seed.py          # Synthetic dataset seeder & model initiator
 │   │   ├── fraud/               # ML feature extraction & Isolation Forest model
@@ -189,7 +216,7 @@ DBMS/
 │   │   │   └── redis_repo.py    # Redis velocity counter repository
 │   │   ├── services/            # Core business & ledger logic
 │   │   │   ├── audit_service.py # SHA-256 hash chaining & verification
-│   │   │   └── ledger_service.py# Double-entry execution & row-level locking
+│   │   │   └── ledger_service.py# Double-entry execution, ascending locks & retry loop
 │   │   ├── workers/             # Transactional outbox asynchronous processor
 │   │   │   └── outbox_worker.py # Background poller & retry dispatcher
 │   │   ├── config.py            # Application settings and environment variables
@@ -206,7 +233,9 @@ DBMS/
 │           └── transfer.html    # Funds transfer terminal with real-time triage
 ├── benchmarking/
 │   ├── demo_concurrency.py      # Multi-threaded deadlock-prevention script
+│   ├── evaluate_fraud_metrics.py# ML Precision, Recall, F1 evaluation script
 │   ├── explain_reports/         # Comprehensive database performance analyses
+│   │   ├── fraud_model_metrics.md # Isolation Forest validation metrics (Precision/Recall/F1)
 │   │   ├── index_benchmarks.md  # B-Tree index scan cost reductions
 │   │   ├── isolation_benchmarks.md # Read Committed vs Serializable concurrency
 │   │   ├── partition_benchmarks.md # Monthly partition pruning verification
@@ -217,13 +246,21 @@ DBMS/
 ├── docker/
 │   ├── docker-compose.yml       # 4-container production topology
 │   └── Dockerfile               # Backend container build specification
+├── documentation/               # Course documentation & deliverables
+│   ├── dbmsfinal_synopsis.docx  # 2-page project synopsis
+│   ├── ER_Diagram_Fraud_Ledger_v2.png # Chen-style Entity-Relationship diagram
+│   ├── Financial_Ledger_ER_Diagram_and_Schema.modified.pdf # Relational mapping specification
+│   ├── Fraud Ledger — Project Checklist.html # Interactive verification checklist
+│   ├── Final_Project_Report.md  # Comprehensive project report
+│   ├── Demo_Script_and_Viva_QA.md # Step-by-step demo script & viva questions
+│   └── System_Requirements_Financial_Ledger_Fraud_Triage.docx # System requirements specification
 ├── tests/                       # Pytest verification suite
 │   ├── conftest.py              # Test database fixtures & offline bypass
 │   ├── test_audit.py            # Cryptographic hash chain tamper tests
 │   ├── test_concurrency.py      # Concurrent row locking & race condition tests
 │   ├── test_fraud.py            # Fraud engine & fail-safe fallback tests
-│   ├── test_ledger.py           # Double-entry balancing & overdraft tests
-│   ├── test_outbox.py           # Outbox retry & NoSQL sync tests
+│   ├── test_ledger.py           # Double-entry balancing & reconciliation tests
+│   ├── test_outbox.py           # Outbox retry & NoSQL failure simulation tests
 │   └── test_security.py         # RBAC role gating tests
 ├── requirements.txt             # Python dependencies
 ├── .gitignore                   # Ignored files (virtualenvs, databases, logs)
@@ -232,32 +269,26 @@ DBMS/
 
 ---
 
-## 🗄 Database Schema & Partitioning
+## 🗄 Database Schema, Partitioning & Materialized Views
 
-The relational schema implements 11 normalized tables in PostgreSQL:
+The relational schema implements **12 normalized tables** and **2 materialized views** in PostgreSQL:
 
-| Table | Purpose | Integrity Constraint |
+| Relation / View | Purpose | Integrity Constraint |
 |---|---|---|
 | `CUSTOMER` | Customer identity & KYC status | `UNIQUE(email)`, `CHECK (kyc_status)` |
-| `ACCOUNT` | Monetary balances | `CHECK (balance >= 0)`, Row-lock target |
 | `DEVICE` | Fingerprint tracking for velocity & anomaly detection | FK to `CUSTOMER` |
 | `MERCHANT` | Merchant directory & categories | ISO 2-letter country code |
-| `TRANSACTION` | Transfer header & execution lifecycle | `CHECK (status IN ('PROCESSING', 'COMPLETED', 'ROLLED_BACK'))` |
+| `ACCOUNT` | Monetary balances (cached) | `CHECK (balance >= 0)`, Row-lock target |
+| `TRANSACTION` | Transfer header & execution lifecycle | `CHECK (status IN ('PENDING', 'COMMITTED', 'ROLLED_BACK'))` |
 | `LEDGER_ENTRY` | **Range-partitioned** double-entry book | Partitioned by `created_at` (Monthly ranges) |
-| `FRAUD_RESULT` | ML score (0-100), model version, triage action | FK to `TRANSACTION` |
-| `FRAUD_ALERT` | Actionable queue for high/medium severity alerts | `CHECK (severity IN ('MEDIUM', 'HIGH'))` |
-| `ANALYST_REVIEW` | Audit trail of manual fraud reviews | `CHECK (decision)` |
+| `FRAUD_RESULT` | ML score (0-100), model version, triage action | Unique FK to `TRANSACTION` |
+| `FRAUD_ALERT` | Actionable queue for high/medium severity alerts | Unique FK to `FRAUD_RESULT`, `CHECK (status)` |
+| `ANALYST` | Fraud analyst directory & credentials | Primary key `analyst_id` |
+| `ANALYST_REVIEW` | Audit trail of manual fraud reviews | `CHECK (decision IN ('CONFIRM_FRAUD', 'FALSE_POSITIVE', 'ESCALATE'))` |
+| `OUTBOX` | Transactional outbox records | Status: `PENDING`, `SENT`, `FAILED` (with `OUTBOX_EVENT` view) |
 | `AUDIT_LOG` | Tamper-evident cryptographic ledger | Append-only, SHA-256 hash-chained |
-| `OUTBOX_EVENT` | Transactional outbox records | Status: `PENDING`, `SENT`, `RETRY`, `FAILED` |
-
-### Partition Pruning Example
-Queries filtering on date ranges automatically bypass non-relevant tables:
-```sql
-EXPLAIN ANALYZE
-SELECT * FROM LEDGER_ENTRY 
-WHERE created_at >= '2026-10-01' AND created_at < '2026-11-01';
--- Scans only `ledger_entry_y2026m10`, pruning all other monthly partitions.
-```
+| `mv_account_balances` | Materialized view: Cached vs calculated ledger balance | `UNIQUE INDEX` on `account_id` |
+| `mv_daily_transaction_summary` | Materialized view: Daily volume, avg amount & alert counts | B-Tree index on `summary_date` |
 
 ---
 
@@ -268,7 +299,7 @@ The system includes a pre-built glassmorphism web interface accessible via brows
 - **Dashboard (`/`)**: Real-time overview of total active accounts, system balance, open fraud alerts, and pending outbox events.
 - **Transfer Terminal (`/ui/transfer`)**: Interactive funds transfer console with live feedback displaying transaction status, ML risk score, and triage decision.
 - **Ledger History (`/ui/history`)**: Filterable transaction book with balanced debit/credit pairs.
-- **Fraud Alert Desk (`/ui/alerts`)**: Fraud analyst console to inspect flagged transactions and resolve open alerts (`CONFIRMED_FRAUD` / `FALSE_POSITIVE`).
+- **Fraud Alert Desk (`/ui/alerts`)**: Fraud analyst console to inspect flagged transactions and resolve open alerts (`CONFIRM_FRAUD`, `FALSE_POSITIVE`, `ESCALATE`).
 - **Audit Log Inspector (`/ui/audit`)**: Real-time hash chain viewer featuring an interactive **Verify Hash Chain** button that highlights tamper events.
 - **Benchmark Reports (`/ui/benchmarks`)**: Database latency, indexing, and isolation reports rendered directly in the browser.
 
@@ -280,16 +311,24 @@ The system includes a pre-built glassmorphism web interface accessible via brows
 
 | Method | Endpoint | Allowed Roles | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/transactions/transfer` | `customer`, `admin` | Executes double-entry funds transfer with real-time fraud triage |
-| `GET` | `/api/v1/accounts/{id}/balance` | `customer`, `admin` | Returns current account balance and active status |
-| `GET` | `/api/v1/accounts/{id}/ledger` | `customer`, `admin` | Retrieves ledger entries for an account |
+| `POST` | `/api/v1/transactions` | `customer`, `admin` | Executes double-entry funds transfer with real-time fraud triage |
+| `GET` | `/api/v1/transactions/{txn_id}` | `customer`, `admin` | Returns details and ledger legs of a transaction |
+| `GET` | `/api/v1/transactions/account/{account_id}` | `customer`, `admin` | Returns all transaction entries for an account |
+| `GET` | `/api/v1/accounts/{account_id}` | `customer`, `admin` | Returns account balance, account type, and status |
+| `GET` | `/api/v1/accounts` | `customer`, `admin` | Lists all customer accounts |
+| `GET` | `/api/v1/accounts/reconcile/all` | `admin` | Reconciles cached balances against ledger entries across all accounts |
+| `GET` | `/api/v1/accounts/{account_id}/reconcile` | `admin` | Performs balance reconciliation query for a single account |
 | `GET` | `/api/v1/fraud/alerts` | `analyst`, `admin` | Lists open fraud triage alerts |
-| `POST` | `/api/v1/fraud/alerts/{id}/review` | `analyst`, `admin` | Submits fraud analyst determination |
-| `GET` | `/api/v1/audit/logs` | `admin` | Retrieves tamper-evident audit records |
-| `POST` | `/api/v1/audit/verify` | `admin` | Validates SHA-256 chain continuity across all records |
+| `GET` | `/api/v1/fraud/analysts` | `analyst`, `admin` | Lists all registered fraud analysts |
+| `POST` | `/api/v1/fraud/alerts/{alert_id}/review` | `analyst`, `admin` | Submits fraud analyst determination (`CONFIRM_FRAUD` / `FALSE_POSITIVE` / `ESCALATE`) |
+| `GET` | `/api/v1/audit/verify/chain` | `admin` | Validates SHA-256 chain continuity and detects tampering |
+| `GET` | `/api/v1/audit/{table_name}` | `admin` | Retrieves append-only audit trail records for a specific table |
 | `GET` | `/api/v1/admin/benchmarks` | `admin` | Returns database benchmark reports and metrics |
+| `GET` | `/api/v1/admin/outbox/status` | `admin` | Returns outbox worker queue metrics |
+| `POST` | `/api/v1/admin/outbox/process` | `admin` | Manually triggers outbox event draining |
+| `POST` | `/api/v1/admin/seed` | `admin` | Re-seeds synthetic transactions and accounts |
 
-Interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
+Interactive OpenAPI Swagger documentation is available at `http://localhost:8000/docs`.
 
 ---
 
@@ -352,7 +391,7 @@ docker-compose -f docker/docker-compose.yml up --build
 
 6. **Start the FastAPI application**:
    ```bash
-   python -m backend.app.main
+   python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 ---
@@ -360,12 +399,25 @@ docker-compose -f docker/docker-compose.yml up --build
 ## 🧪 Verification & Benchmarks
 
 ### 1. Pytest Test Suite
-Run the automated test suite covering double-entry balancing, concurrency, cryptographic audit chaining, fraud triage, and RBAC:
+Run the automated test suite covering double-entry balancing, concurrency, cryptographic audit chaining, fraud triage, outbox fault tolerance, and RBAC:
 ```bash
 python -m pytest -v tests/
 ```
 
-### 2. Concurrency & Deadlock Prevention Demo
+### 2. ML Fraud Model Evaluation (Precision, Recall, F1)
+Evaluate the Isolation Forest anomaly detector on a validation set:
+```bash
+python benchmarking/evaluate_fraud_metrics.py
+```
+**Results:**
+- **Accuracy:** `99.70%`
+- **Precision:** `93.98%`
+- **Recall (Sensitivity):** `100.00%`
+- **F1-Score:** `0.9690`
+- **False Positive Rate:** `0.32%`
+- **ROC-AUC:** `1.0000`
+
+### 3. Concurrency & Deadlock Prevention Demo
 Execute the multi-threaded race condition benchmark:
 ```bash
 python benchmarking/demo_concurrency.py
@@ -374,8 +426,9 @@ This script launches concurrent threads transferring funds in opposite direction
 - **Zero deadlocks** due to deterministic ascending lock ordering (`account_id ASC`).
 - **Zero lost updates** and precise preservation of total system balance.
 
-### 3. Database Performance Reports
+### 4. Database Performance Reports
 The `benchmarking/explain_reports/` directory contains full `EXPLAIN ANALYZE` reports:
+- **`fraud_model_metrics.md`**: Validation results across precision, recall, and false positive rates.
 - **`isolation_benchmarks.md`**: Empirical throughput and latency across `Read Committed`, `Repeatable Read`, and `Serializable`.
 - **`index_benchmarks.md`**: Query execution cost reductions achieved with composite indexing.
 - **`partition_benchmarks.md`**: Partition pruning verification across monthly ranges.

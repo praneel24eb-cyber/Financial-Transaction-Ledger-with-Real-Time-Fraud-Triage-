@@ -24,8 +24,8 @@ class RedisRepository:
             self._memory_counters = {}
             self._memory_sets = {}
 
-    def increment_velocity(self, account_id: int, window_seconds: int = 3600) -> int:
-        key = f"velocity:{account_id}:{window_seconds}s"
+    def increment_velocity(self, account_id: int, window_seconds: int = 600) -> int:
+        key = f"velocity:{account_id}"
         if self.enabled:
             try:
                 val = self.client.incr(key)
@@ -44,8 +44,8 @@ class RedisRepository:
         self._memory_counters[key].append(now)
         return len(self._memory_counters[key])
 
-    def get_velocity(self, account_id: int, window_seconds: int = 3600) -> int:
-        key = f"velocity:{account_id}:{window_seconds}s"
+    def get_velocity(self, account_id: int, window_seconds: int = 600) -> int:
+        key = f"velocity:{account_id}"
         if self.enabled:
             try:
                 val = self.client.get(key)
@@ -86,4 +86,29 @@ class RedisRepository:
         # In-memory fallback
         return device_id in self._memory_sets.get(key, set())
 
+    def add_recent_merchant(self, account_id: int, merchant_id: int):
+        key = f"merchant:recent:{account_id}"
+        if self.enabled:
+            try:
+                self.client.sadd(key, merchant_id)
+                self.client.expire(key, 86400)
+                return
+            except Exception as e:
+                logger.warning(f"Redis sadd merchant error: {e}")
+
+        if key not in self._memory_sets:
+            self._memory_sets[key] = set()
+        self._memory_sets[key].add(merchant_id)
+
+    def is_known_merchant(self, account_id: int, merchant_id: int) -> bool:
+        key = f"merchant:recent:{account_id}"
+        if self.enabled:
+            try:
+                return bool(self.client.sismember(key, merchant_id))
+            except Exception as e:
+                logger.warning(f"Redis sismember merchant error: {e}")
+
+        return merchant_id in self._memory_sets.get(key, set())
+
 redis_repo = RedisRepository()
+

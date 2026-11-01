@@ -6,6 +6,32 @@ from backend.app.repositories.db import db_manager
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
+@router.get("", response_model=List[dict])
+def list_recent_transactions(limit: int = Query(default=20, ge=1, le=100)):
+    """Returns recent transactions for the live ticker and dashboard feed."""
+    with db_manager.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT t.txn_id, t.txn_type, t.status, t.initiated_at,
+                       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'DEBIT'), 0.0) as amount
+                FROM TRANSACTION t
+                LEFT JOIN LEDGER_ENTRY l ON t.txn_id = l.txn_id
+                GROUP BY t.txn_id, t.txn_type, t.status, t.initiated_at
+                ORDER BY t.txn_id DESC
+                LIMIT %s;
+            """, (limit,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "txn_id": r["txn_id"],
+                    "txn_type": r["txn_type"],
+                    "status": r["status"],
+                    "initiated_at": str(r["initiated_at"]),
+                    "amount": float(r["amount"])
+                }
+                for r in rows
+            ]
+
 @router.post("", response_model=TransferResponse, status_code=status.HTTP_201_CREATED)
 def initiate_transfer(payload: TransferRequest):
     res = ledger_service.execute_transfer(
@@ -13,7 +39,8 @@ def initiate_transfer(payload: TransferRequest):
         destination_account_id=payload.destination_account_id,
         amount=payload.amount,
         device_id=payload.device_id,
-        merchant_id=payload.merchant_id
+        merchant_id=payload.merchant_id,
+        isolation_level=payload.isolation_level or "READ COMMITTED"
     )
     return res
 
@@ -21,7 +48,7 @@ def initiate_transfer(payload: TransferRequest):
 def get_transaction_detail(txn_id: int):
     with db_manager.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT txn_id, type, status, merchant_id, device_id, initiated_at FROM TRANSACTION WHERE txn_id = %s;", (txn_id,))
+            cur.execute("SELECT txn_id, txn_type, status, merchant_id, device_id, initiated_at FROM TRANSACTION WHERE txn_id = %s;", (txn_id,))
             txn = cur.fetchone()
             if not txn:
                 raise HTTPException(status_code=404, detail="Transaction not found.")
@@ -29,7 +56,7 @@ def get_transaction_detail(txn_id: int):
             cur.execute("SELECT entry_id, txn_id, account_id, direction, amount, created_at FROM LEDGER_ENTRY WHERE txn_id = %s ORDER BY entry_id ASC;", (txn_id,))
             entries = cur.fetchall()
 
-            cur.execute("SELECT risk_score, model_version, decision, created_at FROM FRAUD_RESULT WHERE txn_id = %s;", (txn_id,))
+            cur.execute("SELECT result_id, risk_score, model_version, decision, created_at FROM FRAUD_RESULT WHERE txn_id = %s;", (txn_id,))
             fraud = cur.fetchone()
 
             return {
@@ -47,7 +74,7 @@ def get_account_transaction_history(
     with db_manager.get_connection() as conn:
         with conn.cursor() as cur:
             query = """
-                SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status
+                SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
                 FROM LEDGER_ENTRY l
                 JOIN TRANSACTION t ON l.txn_id = t.txn_id
                 WHERE l.account_id = %s
@@ -57,3 +84,4 @@ def get_account_transaction_history(
             cur.execute(query, (account_id, limit, offset))
             rows = cur.fetchall()
             return [dict(r) for r in rows]
+

@@ -1,16 +1,28 @@
 import os
 import re
+import socket
 import hashlib
 import json
 import logging
 import sqlite3
 from contextlib import contextmanager
 from typing import Generator, Any, Tuple
-import psycopg2
-from psycopg2.extras import RealDictCursor
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except ImportError:
+    psycopg2 = None
+    RealDictCursor = None
 from backend.app.config import settings
 
 logger = logging.getLogger(__name__)
+
+def _is_port_open(host: str, port: int, timeout: float = 0.15) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
 
 class SQLiteCursorWrapper:
     """Cursor wrapper that translates PostgreSQL SQL dialect to SQLite 3."""
@@ -18,11 +30,15 @@ class SQLiteCursorWrapper:
         self._cur = cursor
 
     def execute(self, query, params=None):
+        if re.match(r'^\s*SET\s+', query, flags=re.IGNORECASE):
+            return self
         q = query.replace('%s', '?')
         q = re.sub(r'\s+FOR\s+UPDATE\b', '', q, flags=re.IGNORECASE)
         q = re.sub(r"\bNOW\(\)\s*-\s*INTERVAL\s*'30\s*days'", "datetime('now', '-30 days')", q, flags=re.IGNORECASE)
         q = re.sub(r'\bNOW\(\)', "datetime('now')", q, flags=re.IGNORECASE)
+        q = re.sub(r'EXTRACT\(HOUR FROM ([^)]+)\)', r"cast(strftime('%H', \1) as integer)", q, flags=re.IGNORECASE)
         q = re.sub(r'(?<!")\bTRANSACTION\b(?!")', '"TRANSACTION"', q, flags=re.IGNORECASE)
+        # Handle PostgreSQL RETURNING in SQLite
         if params is not None:
             if not isinstance(params, (list, tuple)):
                 params = (params,)
@@ -78,9 +94,8 @@ class SQLiteConnectionWrapper:
 
 class DatabaseManager:
     """
-    Unified Database Manager.
-    Targets PostgreSQL 15+ by default, with automatic built-in SQLite fallback (ledger.db)
-    when running locally without PostgreSQL service.
+    Primary Database Manager targeting PostgreSQL 15+ with automatic local SQLite fallback.
+    Manages connections, transaction scopes, and schema initialization.
     """
     def __init__(self):
         self.host = settings.POSTGRES_HOST
@@ -88,19 +103,172 @@ class DatabaseManager:
         self.db_name = settings.POSTGRES_DB
         self.user = settings.POSTGRES_USER
         self.password = settings.POSTGRES_PASSWORD
-        
-        # Locate local ledger.db
+        self.use_postgres = True
+        self._use_sqlite = None
+
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         candidate_path = os.path.join(base_dir, "ledger.db")
         if os.path.exists(candidate_path):
             self.sqlite_path = candidate_path
         else:
             self.sqlite_path = os.path.abspath("ledger.db")
-            
-        self._use_sqlite = None
+
+    def _init_sqlite_schema(self, conn):
+        """Initializes SQLite schema matching branch2 specifications."""
+        cur = conn.cursor()
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS CUSTOMER (
+                customer_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                kyc_status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS DEVICE (
+                device_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL UNIQUE,
+                first_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES CUSTOMER(customer_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS MERCHANT (
+                merchant_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                category TEXT,
+                country TEXT DEFAULT 'IN',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS ACCOUNT (
+                account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                account_type TEXT NOT NULL,
+                balance REAL NOT NULL DEFAULT 0.00,
+                status TEXT NOT NULL DEFAULT 'ACTIVE',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES CUSTOMER(customer_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS "TRANSACTION" (
+                txn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER,
+                merchant_id INTEGER,
+                txn_type TEXT NOT NULL DEFAULT 'TRANSFER',
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                initiated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (device_id) REFERENCES DEVICE(device_id),
+                FOREIGN KEY (merchant_id) REFERENCES MERCHANT(merchant_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS LEDGER_ENTRY (
+                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                txn_id INTEGER NOT NULL,
+                direction TEXT NOT NULL,
+                amount REAL NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (account_id) REFERENCES ACCOUNT(account_id),
+                FOREIGN KEY (txn_id) REFERENCES "TRANSACTION"(txn_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS FRAUD_RESULT (
+                result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                txn_id INTEGER NOT NULL,
+                risk_score INTEGER NOT NULL,
+                decision TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                features_json TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (txn_id) REFERENCES "TRANSACTION"(txn_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS FRAUD_ALERT (
+                alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                result_id INTEGER NOT NULL,
+                severity TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'OPEN',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (result_id) REFERENCES FRAUD_RESULT(result_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS ANALYST (
+                analyst_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT,
+                role TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS ANALYST_REVIEW (
+                review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_id INTEGER NOT NULL,
+                analyst_id INTEGER NOT NULL,
+                decision TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (alert_id) REFERENCES FRAUD_ALERT(alert_id),
+                FOREIGN KEY (analyst_id) REFERENCES ANALYST(analyst_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS AUDIT_LOG (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                old_data TEXT,
+                new_data TEXT,
+                prev_hash TEXT,
+                row_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS OUTBOX (
+                outbox_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                txn_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                attempts INTEGER DEFAULT 0,
+                last_attempt_at TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            DROP VIEW IF EXISTS mv_account_balances;
+            CREATE VIEW mv_account_balances AS
+            SELECT 
+                a.account_id,
+                a.customer_id,
+                a.account_type,
+                a.status,
+                a.balance AS cached_balance,
+                COALESCE(SUM(CASE WHEN l.direction = 'CREDIT' THEN l.amount ELSE -l.amount END), 0.00) AS calculated_ledger_balance,
+                COUNT(l.entry_id) AS total_ledger_entries,
+                MAX(l.created_at) AS last_activity_at
+            FROM ACCOUNT a
+            LEFT JOIN LEDGER_ENTRY l ON a.account_id = l.account_id
+            GROUP BY a.account_id, a.customer_id, a.account_type, a.status, a.balance;
+
+            DROP VIEW IF EXISTS mv_daily_transaction_summary;
+            CREATE VIEW mv_daily_transaction_summary AS
+            SELECT 
+                DATE(t.initiated_at) AS summary_date,
+                t.txn_type,
+                t.status,
+                COUNT(t.txn_id) AS total_transactions,
+                COALESCE(SUM(l.amount), 0.00) AS total_volume,
+                COALESCE(AVG(l.amount), 0.00) AS avg_amount,
+                COUNT(fa.alert_id) AS total_alerts
+            FROM "TRANSACTION" t
+            LEFT JOIN LEDGER_ENTRY l ON t.txn_id = l.txn_id AND l.direction = 'DEBIT'
+            LEFT JOIN FRAUD_RESULT fr ON t.txn_id = fr.txn_id
+            LEFT JOIN FRAUD_ALERT fa ON fr.result_id = fa.result_id
+            GROUP BY DATE(t.initiated_at), t.txn_type, t.status;
+        """)
+        conn.commit()
 
     def init_db(self):
-        """Initializes database schema and triggers."""
+        """Initializes database schema, partitions, indexes, and triggers."""
         # Detect database backend
         try:
             with self.get_connection() as conn:
@@ -110,7 +278,10 @@ class DatabaseManager:
             pass
 
         if self._use_sqlite:
-            logger.info(f"SQLite fallback active ({self.sqlite_path}). Tables ready.")
+            conn = sqlite3.connect(self.sqlite_path)
+            self._init_sqlite_schema(conn)
+            conn.close()
+            logger.info(f"SQLite database schema & views initialized successfully ({self.sqlite_path}).")
             return
 
         schema_path = os.path.join(os.path.dirname(__file__), "..", "database", "schema.sql")
@@ -142,33 +313,41 @@ class DatabaseManager:
                 wrapper.close()
             return
 
-        # Attempt PostgreSQL connection
-        try:
-            conn = psycopg2.connect(
-                host=self.host,
-                port=self.port,
-                dbname=self.db_name,
-                user=self.user,
-                password=self.password,
-                connect_timeout=1,
-                cursor_factory=RealDictCursor
-            )
-            self._use_sqlite = False
+        # Attempt PostgreSQL connection if port is open
+        if psycopg2 is not None and _is_port_open(self.host, self.port):
             try:
-                yield conn
-            finally:
-                conn.close()
-        except Exception as pg_err:
-            if self._use_sqlite is None:
-                logger.info(f"PostgreSQL unavailable on localhost:5432 ({pg_err}). Switching to built-in SQLite fallback (ledger.db).")
+                conn = psycopg2.connect(
+                    host=self.host,
+                    port=self.port,
+                    dbname=self.db_name,
+                    user=self.user,
+                    password=self.password,
+                    connect_timeout=2,
+                    cursor_factory=RealDictCursor
+                )
+                self._use_sqlite = False
+                try:
+                    yield conn
+                finally:
+                    conn.close()
+                return
+            except Exception as pg_err:
+                logger.info(f"PostgreSQL connection failed ({pg_err}). Switching to local SQLite fallback.")
                 self._use_sqlite = True
-            conn = sqlite3.connect(self.sqlite_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            wrapper = SQLiteConnectionWrapper(conn)
-            try:
-                yield wrapper
-            finally:
-                wrapper.close()
+                self.use_postgres = False
+        else:
+            if self._use_sqlite is None:
+                logger.info("PostgreSQL service not detected on localhost:5432. Active fallback: SQLite (ledger.db).")
+                self._use_sqlite = True
+                self.use_postgres = False
+
+        conn = sqlite3.connect(self.sqlite_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        wrapper = SQLiteConnectionWrapper(conn)
+        try:
+            yield wrapper
+        finally:
+            wrapper.close()
 
 db_manager = DatabaseManager()
 

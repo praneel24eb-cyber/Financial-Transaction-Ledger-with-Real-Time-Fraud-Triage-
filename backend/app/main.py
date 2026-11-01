@@ -25,25 +25,30 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if os.getenv("TESTING") == "1":
+        yield
+        return
     # Startup logic: Initialize PostgreSQL schema and seed dataset if empty
     logger.info("Initializing Financial Ledger PostgreSQL Database & Models...")
     try:
         db_manager.init_db()
+        count = 0
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) as cnt FROM ACCOUNT;")
                 row = cur.fetchone()
                 count = row['cnt'] if row else 0
-                if count == 0:
-                    logger.info("Empty database detected. Seeding initial synthetic records & training model...")
-                    seed_database()
+        if count == 0:
+            logger.info("Empty database detected. Seeding initial synthetic records & training model...")
+            seed_database()
     except Exception as e:
         logger.warning(f"Database connection or init on startup: {e}")
 
     # Start Outbox Worker Daemon Thread
-    outbox_thread = threading.Thread(target=run_outbox_worker_loop, daemon=True)
-    outbox_thread.start()
-    logger.info("Outbox worker thread started in background.")
+    if os.getenv("TESTING") != "1":
+        outbox_thread = threading.Thread(target=run_outbox_worker_loop, daemon=True)
+        outbox_thread.start()
+        logger.info("Outbox worker thread started in background.")
 
     yield
 
@@ -56,8 +61,10 @@ app = FastAPI(
 
 # Static & Templates setup
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "..", "frontend", "static")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "..", "frontend", "templates")
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
+STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
+TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -89,19 +96,19 @@ def page_dashboard(request: Request):
                 r2 = cur.fetchone()
                 open_alerts = r2['cnt'] if r2 else 0
 
-                cur.execute("SELECT COUNT(*) as cnt FROM OUTBOX_EVENT WHERE status = 'PENDING';")
+                cur.execute("SELECT COUNT(*) as cnt FROM OUTBOX WHERE status = 'PENDING';")
                 r3 = cur.fetchone()
                 outbox_pending = r3['cnt'] if r3 else 0
 
-                cur.execute("SELECT account_id, customer_id, type, balance, status FROM ACCOUNT ORDER BY account_id ASC LIMIT 10;")
+                cur.execute("SELECT account_id, customer_id, account_type, balance, status FROM ACCOUNT ORDER BY account_id ASC LIMIT 10;")
                 accs = [dict(a) for a in cur.fetchall()]
     except Exception:
         total_accounts, total_balance, open_alerts, outbox_pending, accs = 0, 0.0, 0, 0, []
 
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
+        request=request,
+        name="index.html",
+        context={
             "active_page": "dashboard",
             "total_accounts": total_accounts,
             "total_balance": total_balance,
@@ -120,7 +127,7 @@ def page_transfer(request: Request):
                 accs = [dict(a) for a in cur.fetchall()]
     except Exception:
         accs = []
-    return templates.TemplateResponse("transfer.html", {"request": request, "active_page": "transfer", "accounts": accs})
+    return templates.TemplateResponse(request=request, name="transfer.html", context={"active_page": "transfer", "accounts": accs})
 
 @app.get("/ui/history", response_class=HTMLResponse)
 def page_history(request: Request, account_id: int = Query(default=None)):
@@ -132,7 +139,7 @@ def page_history(request: Request, account_id: int = Query(default=None)):
 
                 if account_id:
                     query = """
-                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status
+                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
                         FROM LEDGER_ENTRY l
                         JOIN TRANSACTION t ON l.txn_id = t.txn_id
                         WHERE l.account_id = %s
@@ -141,7 +148,7 @@ def page_history(request: Request, account_id: int = Query(default=None)):
                     cur.execute(query, (account_id,))
                 else:
                     query = """
-                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status
+                        SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
                         FROM LEDGER_ENTRY l
                         JOIN TRANSACTION t ON l.txn_id = t.txn_id
                         ORDER BY l.entry_id DESC LIMIT 50;
@@ -153,9 +160,9 @@ def page_history(request: Request, account_id: int = Query(default=None)):
         accs, entries = [], []
 
     return templates.TemplateResponse(
-        "history.html",
-        {
-            "request": request,
+        request=request,
+        name="history.html",
+        context={
             "active_page": "history",
             "accounts": accs,
             "selected_account": account_id,
@@ -170,7 +177,7 @@ def page_alerts(request: Request):
         alerts = list_fraud_alerts()
     except Exception:
         alerts = []
-    return templates.TemplateResponse("alerts.html", {"request": request, "active_page": "alerts", "alerts": alerts})
+    return templates.TemplateResponse(request=request, name="alerts.html", context={"active_page": "alerts", "alerts": alerts})
 
 @app.get("/ui/audit", response_class=HTMLResponse)
 def page_audit(request: Request):
@@ -181,12 +188,12 @@ def page_audit(request: Request):
                 rows = [dict(r) for r in cur.fetchall()]
     except Exception:
         rows = []
-    return templates.TemplateResponse("audit.html", {"request": request, "active_page": "audit", "audit_rows": rows})
+    return templates.TemplateResponse(request=request, name="audit.html", context={"active_page": "audit", "audit_rows": rows})
 
 @app.get("/ui/benchmarks", response_class=HTMLResponse)
 def page_benchmarks(request: Request):
     report = get_benchmark_report()
-    return templates.TemplateResponse("benchmarks.html", {"request": request, "active_page": "benchmarks", "benchmarks": report})
+    return templates.TemplateResponse(request=request, name="benchmarks.html", context={"active_page": "benchmarks", "benchmarks": report})
 
 if __name__ == "__main__":
     import uvicorn

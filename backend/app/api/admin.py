@@ -15,12 +15,11 @@ def trigger_database_seed():
 def get_outbox_queue_status():
     with db_manager.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT status, COUNT(*) as count FROM OUTBOX_EVENT GROUP BY status;")
+            cur.execute("SELECT status, COUNT(*) as count FROM OUTBOX GROUP BY status;")
             rows = cur.fetchall()
             counts = {r['status']: r['count'] for r in rows}
             return {
                 "pending": counts.get("PENDING", 0),
-                "retry": counts.get("RETRY", 0),
                 "sent": counts.get("SENT", 0),
                 "failed": counts.get("FAILED", 0)
             }

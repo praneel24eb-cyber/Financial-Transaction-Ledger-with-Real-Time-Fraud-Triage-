@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | LedgerGuard{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div style="margin-bottom: 2rem;">
+  <h1 class="page-title">Financial Ledger &amp; Real-Time Fraud Triage</h1>
+  <p class="page-subtitle">PostgreSQL 15+ ACID Source of Truth · Isolation Forest Fraud Scoring · SHA-256 Hash-Chained
+    Audit</p>
+</div>
+
+<!-- Stats Grid -->
+<div class="stats-grid" style="margin-bottom: 2rem;">
+  <div class="glass-card stat-card">
+    <div style="display:flex; align-items:center; gap:1rem;">
+      <div class="stat-icon-wrapper" style="background:rgba(99,102,241,0.15);">💼</div>
+      <div>
+        <div class="stat-label">Total Accounts</div>
+        <div class="stat-value">{{ total_accounts }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="glass-card stat-card">
+    <div style="display:flex; align-items:center; gap:1rem;">
+      <div class="stat-icon-wrapper" style="background:rgba(16,185,129,0.15);">₹</div>
+      <div>
+        <div class="stat-label">Total System Deposits</div>
+        <div class="stat-value" style="font-size:1.6rem;">₹{{ "%.0f"|format(total_balance) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="glass-card stat-card">
+    <div style="display:flex; align-items:center; gap:1rem;">
+      <div class="stat-icon-wrapper" style="background:rgba(245,158,11,0.15);">🚨</div>
+      <div>
+        <div class="stat-label">Open Fraud Alerts</div>
+        <div class="stat-value" style="color:var(--accent-amber);">{{ open_alerts }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="glass-card stat-card">
+    <div style="display:flex; align-items:center; gap:1rem;">
+      <div class="stat-icon-wrapper" style="background:rgba(6,182,212,0.15);">📤</div>
+      <div>
+        <div class="stat-label">Outbox Queue Depth</div>
+        <div class="stat-value" style="color:var(--accent-cyan);">{{ outbox_pending }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Live Transaction Ticker -->
+<div class="ticker-wrap" id="ticker-wrap">
+  <div class="ticker-label">⚡ Live Transaction Feed</div>
+  <div class="ticker-items" id="ticker-items">
+    <span class="ticker-item">Loading transactions...</span>
+  </div>
+</div>
+
+<!-- Quick Transfer + Accounts Grid -->
+<div class="grid-2">
+  <!-- Quick Transfer Widget -->
+  <div class="glass-card">
+    <div class="section-heading">
+      <span class="section-title">⚡ Quick Transfer</span>
+      <a href="/ui/transfer" class="btn btn-secondary" style="padding:0.4rem 0.9rem; font-size:0.8rem;">Full View →</a>
+    </div>
+    <form id="dash-transfer-form" style="display:flex; flex-direction:column; gap:1rem;">
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">From Account</label>
+          <select id="d-src" class="form-select" required>
+            {% for acc in accounts %}
+            <option value="{{ acc.account_id }}">Acc #{{ acc.account_id }} — ₹{{ "%.0f"|format(acc.balance) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">To Account</label>
+          <select id="d-dst" class="form-select" required>
+            {% for acc in accounts %}
+            <option value="{{ acc.account_id }}" {% if loop.index==2 %}selected{% endif %}>Acc #{{ acc.account_id }} —
+              ₹{{ "%.0f"|format(acc.balance) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Amount (₹)</label>
+          <input type="number" step="0.01" id="d-amt" class="form-input" value="1500.00" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Device ID</label>
+          <input type="number" id="d-dev" class="form-input" value="1" required>
+        </div>
+      </div>
+      <button type="button" onclick="dashTransfer()" class="btn btn-primary" style="width:100%;">
+        Execute Transfer
+      </button>
+    </form>
+    <div id="dash-result" style="margin-top:1rem;"></div>
+  </div>
+
+  <!-- Accounts Table -->
+  <div class="glass-card">
+    <div class="section-heading">
+      <span class="section-title">💼 Managed Accounts</span>
+      <a href="/ui/history" class="btn btn-secondary" style="padding:0.4rem 0.9rem; font-size:0.8rem;">Ledger →</a>
+    </div>
+    <div class="table-container">
+      <table class="custom-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Type</th>
+            <th>Balance</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in accounts %}
+          <tr>
+            <td><code>#{{ acc.account_id }}</code></td>
+            <td><span class="badge badge-purple">{{ acc.account_type }}</span></td>
+            <td><strong>₹{{ "%.2f"|format(acc.balance) }}</strong></td>
+            <td>
+              {% if acc.status == 'ACTIVE' %}
+              <span class="badge badge-success">ACTIVE</span>
+              {% elif acc.status == 'FROZEN' %}
+              <span class="badge badge-danger">FROZEN</span>
+              {% else %}
+              <span class="badge badge-warning">{{ acc.status }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" style="text-align:center;color:var(--text-muted);padding:2rem;">No accounts. <a
+                href="/api/v1/admin/seed" style="color:var(--primary);">Seed the DB</a>.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  async function dashTransfer() {
+    const src = document.getElementById('d-src').value;
+    const dst = document.getElementById('d-dst').value;
+    const amt = parseFloat(document.getElementById('d-amt').value);
+    const dev = parseInt(document.getElementById('d-dev').value);
+    const out = document.getElementById('dash-result');
+    out.innerHTML = '<div style="color:var(--text-muted);padding:0.5rem;display:flex;align-items:center;gap:0.5rem;"><div class="spinner"></div> Processing...</div>';
+    try {
+      const res = await fetch('/api/v1/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_account_id: parseInt(src), destination_account_id: parseInt(dst), amount: amt, device_id: dev, isolation_level: 'READ COMMITTED' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const cls = data.decision === 'REVIEW' ? 'result-review' : 'result-approved';
+        const msg = data.decision === 'REVIEW' ? 'Transaction submitted. <span class="badge badge-warning" style="font-size:0.7rem;">Under Review</span>' : `<strong>Approved!</strong> New balance: ₹${data.source_balance.toFixed(2)}`;
+        out.innerHTML = `<div class="${cls}"><div style="font-size:0.95rem;">${msg}</div><div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem;">Txn #${data.txn_id}</div></div>`;
+        showToast('Transfer executed successfully.', 'success');
+        loadTicker();
+      } else {
+        out.innerHTML = `<div class="result-declined"><strong>Transaction could not be completed.</strong><p style="font-size:0.9rem;color:var(--text-muted);margin-top:0.5rem;">We couldn't complete this transaction. Please contact support.</p></div>`;
+        showToast('Transaction could not be processed.', 'error');
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="result-declined">Error: ${e.message}</div>`;
+    }
+  }
+
+  async function loadTicker() {
+    try {
+      const res = await fetch('/api/v1/transactions');
+      if (!res.ok) return;
+      const txns = await res.json();
+      const items = document.getElementById('ticker-items');
+      if (!txns || txns.length === 0) return;
+      const dots = { APPROVED: 'dot-green', APPROVED_UNDER_REVIEW: 'dot-amber', ROLLED_BACK: 'dot-red' };
+      const doubled = [...txns, ...txns]; // duplicate for seamless loop
+      items.innerHTML = doubled.map(t => {
+        const dot = dots[t.status] || 'dot-green';
+        return `<span class="ticker-item"><span class="dot ${dot}"></span><span>Txn #${t.txn_id}</span><span class="amount">₹${parseFloat(t.amount).toFixed(2)}</span><span style="color:var(--text-dim);">${t.status}</span></span>`;
+      }).join('');
+    } catch (e) { }
+  }
+
+  loadTicker();
+  setInterval(loadTicker, 8000);
+</script>
+{% endblock %}
