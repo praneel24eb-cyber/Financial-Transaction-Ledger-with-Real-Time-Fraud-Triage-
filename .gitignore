@@ -36,6 +36,12 @@ htmlcov/
 *.log
 ledger.db
 
+# Local PostgreSQL cluster (dev only)
+.pgdata/
+
+# Local environment overrides
+.env
+
 # IDE
 .vscode/
 .idea/

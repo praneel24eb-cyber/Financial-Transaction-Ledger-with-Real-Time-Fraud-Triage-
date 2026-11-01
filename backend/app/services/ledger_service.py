@@ -78,6 +78,11 @@ class LedgerService:
                     if src_balance < amount:
                         raise HTTPException(status_code=402, detail=f"Insufficient funds: available balance is ₹{src_balance:.2f}, required ₹{amount:.2f}.")
 
+                    # Validate the originating device (FK would otherwise surface as a 500)
+                    cur.execute("SELECT device_id FROM DEVICE WHERE device_id = %s;", (device_id,))
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=404, detail=f"Device ID {device_id} is not registered.")
+
                     # 2. Extract Fraud Features & Score via Isolation Forest (or Fail-Safe Fallback)
                     features = extract_fraud_features(source_account_id, amount, device_id, merchant_id)
                     risk_score, decision, model_version = fraud_engine.score_transaction(features)
@@ -114,8 +119,16 @@ class LedgerService:
                     txn_id = cur.fetchone()['txn_id']
 
                     # 5. Insert Balanced Double-Entry LEDGER_ENTRY rows (DEBIT source, CREDIT destination)
-                    cur.execute("INSERT INTO LEDGER_ENTRY (txn_id, account_id, direction, amount, created_at) VALUES (%s, %s, 'DEBIT', %s, NOW());", (txn_id, source_account_id, amount))
-                    cur.execute("INSERT INTO LEDGER_ENTRY (txn_id, account_id, direction, amount, created_at) VALUES (%s, %s, 'CREDIT', %s, NOW());", (txn_id, destination_account_id, amount))
+                    cur.execute(
+                        "INSERT INTO LEDGER_ENTRY (txn_id, account_id, direction, amount, created_at) VALUES (%s, %s, 'DEBIT', %s, NOW()) RETURNING entry_id, txn_id, account_id, direction, amount, created_at;",
+                        (txn_id, source_account_id, amount)
+                    )
+                    debit_entry = dict(cur.fetchone())
+                    cur.execute(
+                        "INSERT INTO LEDGER_ENTRY (txn_id, account_id, direction, amount, created_at) VALUES (%s, %s, 'CREDIT', %s, NOW()) RETURNING entry_id, txn_id, account_id, direction, amount, created_at;",
+                        (txn_id, destination_account_id, amount)
+                    )
+                    credit_entry = dict(cur.fetchone())
 
                     # 6. Update Account Balances
                     new_src_balance = src_balance - amount
@@ -179,7 +192,8 @@ class LedgerService:
                         "decision": decision,
                         "model_version": model_version,
                         "source_balance": new_src_balance,
-                        "destination_balance": new_dst_balance
+                        "destination_balance": new_dst_balance,
+                        "ledger_entries": [debit_entry, credit_entry]
                     }
 
                 except HTTPException:

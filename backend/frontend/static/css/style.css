@@ -355,3 +355,208 @@ code, pre {
   color: var(--text-dim);
   font-size: 0.85rem;
 }
+
+/* ------------------------------------------------------------------ */
+/* Session identity (navigation)                                       */
+/* ------------------------------------------------------------------ */
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.user-name {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.nav-logout {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.role-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+
+.role-customer { color: #22d3ee; background: rgba(6, 182, 212, 0.12); border-color: rgba(6, 182, 212, 0.35); }
+.role-analyst  { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); }
+.role-admin    { color: #c084fc; background: rgba(168, 85, 247, 0.12); border-color: rgba(168, 85, 247, 0.35); }
+
+/* ------------------------------------------------------------------ */
+/* Inline alerts / banners                                             */
+/* ------------------------------------------------------------------ */
+.alert {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid transparent;
+  line-height: 1.5;
+}
+
+.alert-danger {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #fecdd3;
+}
+
+.alert-warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fde68a;
+}
+
+/* ------------------------------------------------------------------ */
+/* Login portal                                                        */
+/* ------------------------------------------------------------------ */
+.auth-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1rem;
+}
+
+.auth-wrapper {
+  width: 100%;
+  max-width: 540px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.auth-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.auth-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.auth-card-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.auth-card-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.demo-users {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.demo-users-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.demo-users-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.demo-user {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.7rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+
+.demo-user:hover {
+  border-color: var(--border-hover);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--text-main);
+}
+
+.demo-user strong {
+  color: var(--text-main);
+  font-size: 0.82rem;
+}
+
+.role-notes {
+  list-style: none;
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.role-notes li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .nav-container {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .demo-users-grid {
+    grid-template-columns: 1fr;
+  }
+}

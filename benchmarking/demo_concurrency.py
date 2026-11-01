@@ -1,6 +1,16 @@
+import os
+import sys
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
+
+# Allow running this file directly (python benchmarking/demo_concurrency.py)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Windows consoles default to cp1252 and cannot print the emoji banners below.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from backend.app.repositories.db import db_manager
 from backend.app.services.ledger_service import ledger_service
 

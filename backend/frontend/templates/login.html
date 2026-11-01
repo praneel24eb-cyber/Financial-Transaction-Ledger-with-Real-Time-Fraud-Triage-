@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In | DBMS Ledger Engine</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="auth-body">
+
+  <div class="auth-wrapper">
+    <div class="auth-brand">
+      <div class="logo-icon">FL</div>
+      <div>
+        <h1 class="auth-title">DBMS Ledger Engine</h1>
+        <p class="auth-subtitle">Financial Transaction Ledger with Real-Time Fraud Triage</p>
+      </div>
+    </div>
+
+    <div class="glass-card auth-card">
+      <h2 class="auth-card-title">Sign in</h2>
+      <p class="auth-card-hint">Access is scoped by role. Customers, analysts and administrators see different data.</p>
+
+      {% if error %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/login" class="auth-form">
+        <input type="hidden" name="next" value="{{ next or '' }}">
+
+        <div class="form-group">
+          <label class="form-label" for="username">Username</label>
+          <input class="form-input" type="text" id="username" name="username" autocomplete="username"
+                 value="{{ username_value or '' }}" required autofocus>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input class="form-input" type="password" id="password" name="password" autocomplete="current-password" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+      </form>
+
+      <div class="demo-users">
+        <span class="demo-users-label">Demo accounts</span>
+        <div class="demo-users-grid">
+          <button type="button" class="demo-user" onclick="fillLogin('customer','customer123')">
+            <strong>Customer</strong><span>customer / customer123</span>
+          </button>
+          <button type="button" class="demo-user" onclick="fillLogin('analyst','analyst123')">
+            <strong>Analyst</strong><span>analyst / analyst123</span>
+          </button>
+          <button type="button" class="demo-user" onclick="fillLogin('admin','admin123')">
+            <strong>Admin</strong><span>admin / admin123</span>
+          </button>
+        </div>
+      </div>
+
+      <ul class="role-notes">
+        <li><span class="role-badge role-customer">customer</span> own accounts, transfers and ledger history</li>
+        <li><span class="role-badge role-analyst">analyst</span> fraud alert queue, ML evidence and review decisions</li>
+        <li><span class="role-badge role-admin">admin</span> full ledger, audit hash chain and benchmarks</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    function fillLogin(user, pass) {
+      document.getElementById('username').value = user;
+      document.getElementById('password').value = pass;
+    }
+  </script>
+</body>
+</html>

@@ -152,10 +152,35 @@ flowchart TD
 - Implements exponential backoff with a 5-attempt retry limit.
 
 ### 6. Role-Based Access Control (RBAC)
-Endpoints enforce privilege tiers via the `X-User-Role` HTTP header:
-- **`customer`**: Transfer execution, account balance lookup, own transaction history.
-- **`analyst`**: Access fraud review queues, investigate alert details, submit alert resolution (`CONFIRMED_FRAUD` / `FALSE_POSITIVE`).
-- **`admin`**: Trigger audit chain cryptographic validation, inspect benchmark reports, seed synthetic data.
+
+Authentication is handled by a real login portal at `/login`, backed by the `APP_USER` table
+(PBKDF2-SHA256 password hashes) and an HMAC-signed `ledger_session` cookie. Roles are enforced
+server-side on both API routes and HTML pages; the UI simply reflects what the role is allowed to see.
+
+Demo accounts (created idempotently on startup and after reseeding):
+
+| Username | Password | Role | Lands on |
+|---|---|---|---|
+| `customer` | `customer123` | `customer` | own dashboard |
+| `analyst` | `analyst123` | `analyst` | fraud alert queue |
+| `admin` | `admin123` | `admin` | full dashboard |
+
+Privilege tiers:
+
+- **`customer`**: own accounts, own transfers, own ledger history. Customers never receive ML
+  scores or triage decisions: the dashboard hides the fraud queue, transfer responses omit
+  `risk_score` / `decision` / `model_version`, and a declined transfer returns a generic security
+  message. Account access is row-scoped — other customers' accounts return `404`.
+- **`analyst`**: fraud alert queue, ML evidence, and alert resolution (`CONFIRMED_FRAUD` /
+  `FALSE_POSITIVE`). Balances and transfer execution are denied.
+- **`admin`**: everything — full ledger, audit-chain verification, benchmarks, reseeding, and outbox
+  operations.
+
+API clients authenticate with the same signed session cookie. For service-to-service use (and
+automated tests) an `X-User-Role: customer|analyst|admin` header is also accepted **only when
+`ALLOW_ROLE_HEADER=true` is set** in the environment; it is ignored by default so callers cannot
+self-assign a privileged role. Missing credentials return `401`; a role that is not permitted
+returns `403`.
 
 ---
 
@@ -263,11 +288,13 @@ WHERE created_at >= '2026-10-01' AND created_at < '2026-11-01';
 
 ## 🖥 Interactive UI Dashboard
 
-The system includes a pre-built glassmorphism web interface accessible via browser:
+The system includes a pre-built glassmorphism web interface accessible via browser. Everything
+below is behind the login portal; navigation links and page bodies are rendered per role.
 
-- **Dashboard (`/`)**: Real-time overview of total active accounts, system balance, open fraud alerts, and pending outbox events.
-- **Transfer Terminal (`/ui/transfer`)**: Interactive funds transfer console with live feedback displaying transaction status, ML risk score, and triage decision.
-- **Ledger History (`/ui/history`)**: Filterable transaction book with balanced debit/credit pairs.
+- **Login Portal (`/login`)**: Credential sign-in with one-click demo accounts, signed session cookie, and sign-out.
+- **Dashboard (`/`)**: Role-scoped overview — customers see their own accounts and balance; analysts see the alert queue; admins also see outbox depth.
+- **Transfer Terminal (`/ui/transfer`)**: Interactive funds transfer console with live status and balances. Staff roles also see the ML risk score and triage decision; customers do not.
+- **Ledger History (`/ui/history`)**: Filterable transaction book with balanced debit/credit pairs, scoped to the signed-in customer.
 - **Fraud Alert Desk (`/ui/alerts`)**: Fraud analyst console to inspect flagged transactions and resolve open alerts (`CONFIRMED_FRAUD` / `FALSE_POSITIVE`).
 - **Audit Log Inspector (`/ui/audit`)**: Real-time hash chain viewer featuring an interactive **Verify Hash Chain** button that highlights tamper events.
 - **Benchmark Reports (`/ui/benchmarks`)**: Database latency, indexing, and isolation reports rendered directly in the browser.
@@ -280,14 +307,17 @@ The system includes a pre-built glassmorphism web interface accessible via brows
 
 | Method | Endpoint | Allowed Roles | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/transactions/transfer` | `customer`, `admin` | Executes double-entry funds transfer with real-time fraud triage |
-| `GET` | `/api/v1/accounts/{id}/balance` | `customer`, `admin` | Returns current account balance and active status |
-| `GET` | `/api/v1/accounts/{id}/ledger` | `customer`, `admin` | Retrieves ledger entries for an account |
-| `GET` | `/api/v1/fraud/alerts` | `analyst`, `admin` | Lists open fraud triage alerts |
-| `POST` | `/api/v1/fraud/alerts/{id}/review` | `analyst`, `admin` | Submits fraud analyst determination |
-| `GET` | `/api/v1/audit/logs` | `admin` | Retrieves tamper-evident audit records |
-| `POST` | `/api/v1/audit/verify` | `admin` | Validates SHA-256 chain continuity across all records |
+| `POST` | `/api/v1/transactions` | `customer`, `admin` | Executes double-entry funds transfer with real-time fraud triage |
+| `GET` | `/api/v1/transactions/{txn_id}` | `customer`, `admin` | Transaction detail with ledger pairs; customers get no ML result |
+| `GET` | `/api/v1/transactions/account/{account_id}` | `customer`, `admin` | Ledger entries for an account (row-scoped for customers) |
+| `GET` | `/api/v1/accounts` | `customer`, `admin` | Lists accounts (customers see only their own) |
+| `GET` | `/api/v1/accounts/{account_id}` | `customer`, `admin` | Returns account balance and status |
+| `GET` | `/api/v1/fraud/alerts` | `analyst`, `admin` | Lists fraud triage alerts (`?status_filter=OPEN|CLOSED`) |
+| `POST` | `/api/v1/fraud/alerts/{alert_id}/review` | `analyst`, `admin` | Submits fraud analyst determination |
+| `GET` | `/api/v1/audit/verify/chain` | `admin` | Validates SHA-256 chain continuity across all records |
+| `GET` | `/api/v1/audit/{table_name}` | `admin` | Retrieves tamper-evident audit records for a table |
 | `GET` | `/api/v1/admin/benchmarks` | `admin` | Returns database benchmark reports and metrics |
+| `POST` | `/api/v1/admin/seed` | `admin` | Reseeds synthetic data and retrains the model |
 
 Interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
 
@@ -303,7 +333,7 @@ Spin up the entire stack (PostgreSQL 15, Redis 7, MongoDB 6, FastAPI backend) wi
 docker-compose -f docker/docker-compose.yml up --build
 ```
 
-- Web UI: **`http://localhost:8000`**
+- Web UI: **`http://localhost:8000`** — sign in at `/login` with the demo accounts (below)
 - Interactive Swagger API: **`http://localhost:8000/docs`**
 - PostgreSQL: Port `5432` (db: `ledger_db`, user: `ledger_user`, pass: `ledger_password`)
 - Redis: Port `6379`

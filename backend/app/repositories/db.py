@@ -99,6 +99,11 @@ class DatabaseManager:
             
         self._use_sqlite = None
 
+    @property
+    def use_postgres(self) -> bool:
+        """True when the manager is talking to PostgreSQL (i.e. not on the SQLite fallback)."""
+        return self._use_sqlite is False
+
     def init_db(self):
         """Initializes database schema and triggers."""
         # Detect database backend
@@ -143,8 +148,9 @@ class DatabaseManager:
             return
 
         # Attempt PostgreSQL connection
+        pg_conn = None
         try:
-            conn = psycopg2.connect(
+            pg_conn = psycopg2.connect(
                 host=self.host,
                 port=self.port,
                 dbname=self.db_name,
@@ -153,14 +159,11 @@ class DatabaseManager:
                 connect_timeout=1,
                 cursor_factory=RealDictCursor
             )
-            self._use_sqlite = False
-            try:
-                yield conn
-            finally:
-                conn.close()
         except Exception as pg_err:
+            # Only connection failures fall back to SQLite. Errors raised inside the
+            # with-block belong to the caller and must never trigger a second yield.
             if self._use_sqlite is None:
-                logger.info(f"PostgreSQL unavailable on localhost:5432 ({pg_err}). Switching to built-in SQLite fallback (ledger.db).")
+                logger.info(f"PostgreSQL unavailable on {self.host}:{self.port} ({pg_err}). Switching to built-in SQLite fallback ({self.sqlite_path}).")
                 self._use_sqlite = True
             conn = sqlite3.connect(self.sqlite_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
@@ -169,6 +172,13 @@ class DatabaseManager:
                 yield wrapper
             finally:
                 wrapper.close()
+            return
+
+        self._use_sqlite = False
+        try:
+            yield pg_conn
+        finally:
+            pg_conn.close()
 
 db_manager = DatabaseManager()
 

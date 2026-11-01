@@ -12,6 +12,17 @@ CREATE TABLE IF NOT EXISTS CUSTOMER (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 1b. APP_USER (login portal credentials + role-based access control)
+CREATE TABLE IF NOT EXISTS APP_USER (
+    user_id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'analyst', 'admin')),
+    customer_id BIGINT REFERENCES CUSTOMER(customer_id) ON DELETE SET NULL,
+    display_name VARCHAR(120) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- 2. ACCOUNT
 CREATE TABLE IF NOT EXISTS ACCOUNT (
     account_id BIGSERIAL PRIMARY KEY,
@@ -53,7 +64,7 @@ CREATE TABLE IF NOT EXISTS LEDGER_ENTRY (
     entry_id BIGSERIAL,
     txn_id BIGINT NOT NULL REFERENCES TRANSACTION(txn_id) ON DELETE CASCADE,
     account_id BIGINT NOT NULL REFERENCES ACCOUNT(account_id) ON DELETE RESTRICT,
-    direction CHAR(6) NOT NULL CHECK (direction IN ('DEBIT', 'CREDIT')),
+    direction VARCHAR(6) NOT NULL CHECK (direction IN ('DEBIT', 'CREDIT')),
     amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (entry_id, created_at)

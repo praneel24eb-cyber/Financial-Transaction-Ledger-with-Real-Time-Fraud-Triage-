@@ -59,6 +59,9 @@ class TransferResponse(BaseModel):
     message: str
     risk_score: Optional[int] = None
     decision: Optional[str] = None
+    model_version: Optional[str] = None
+    source_balance: Optional[float] = None
+    destination_balance: Optional[float] = None
     ledger_entries: List[LedgerEntryResponse] = []
 
 # Fraud Alert & Analyst Review Schemas

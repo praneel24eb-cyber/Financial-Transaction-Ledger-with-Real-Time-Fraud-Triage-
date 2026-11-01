@@ -30,7 +30,7 @@ def process_outbox_now():
     count = outbox_worker.process_pending_events()
     return {"message": f"Processed {count} outbox events."}
 
-@router.get("/benchmarks")
+@router.get("/benchmarks", dependencies=[Depends(require_admin)])
 def get_benchmark_report():
     return {
         "engine": "PostgreSQL 15+ Single Source of Truth",

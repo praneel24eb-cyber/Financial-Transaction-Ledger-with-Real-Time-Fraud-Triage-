@@ -20,13 +20,30 @@
       <nav>
         <ul class="nav-links">
           <li><a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a></li>
-          <li><a href="/ui/transfer" class="nav-link {% if active_page == 'transfer' %}active{% endif %}">Transfer Triage</a></li>
-          <li><a href="/ui/history" class="nav-link {% if active_page == 'history' %}active{% endif %}">Ledger History</a></li>
-          <li><a href="/ui/alerts" class="nav-link {% if active_page == 'alerts' %}active{% endif %}">Fraud Alerts</a></li>
-          <li><a href="/ui/audit" class="nav-link {% if active_page == 'audit' %}active{% endif %}">Audit Log Chain</a></li>
-          <li><a href="/ui/benchmarks" class="nav-link {% if active_page == 'benchmarks' %}active{% endif %}">Benchmarks</a></li>
+
+          {% if can_transfer %}
+            <li><a href="/ui/transfer" class="nav-link {% if active_page == 'transfer' %}active{% endif %}">Transfer Triage</a></li>
+            <li><a href="/ui/history" class="nav-link {% if active_page == 'history' %}active{% endif %}">Ledger History</a></li>
+          {% endif %}
+
+          {% if can_triage %}
+            <li><a href="/ui/alerts" class="nav-link {% if active_page == 'alerts' %}active{% endif %}">Fraud Alerts</a></li>
+          {% endif %}
+
+          {% if can_admin %}
+            <li><a href="/ui/audit" class="nav-link {% if active_page == 'audit' %}active{% endif %}">Audit Log Chain</a></li>
+            <li><a href="/ui/benchmarks" class="nav-link {% if active_page == 'benchmarks' %}active{% endif %}">Benchmarks</a></li>
+          {% endif %}
         </ul>
       </nav>
+
+      <div class="nav-user">
+        <span class="user-chip">
+          <span class="user-name">{{ current_user.name or current_user.sub }}</span>
+          <span class="role-badge role-{{ role }}">{{ role }}</span>
+        </span>
+        <a href="/logout" class="nav-link nav-logout">Sign out</a>
+      </div>
     </div>
   </header>
 

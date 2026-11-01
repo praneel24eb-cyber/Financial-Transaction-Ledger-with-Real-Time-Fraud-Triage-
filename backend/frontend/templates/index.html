@@ -3,34 +3,72 @@
 {% block title %}Dashboard | Financial Ledger Engine{% endblock %}
 
 {% block content %}
+{% if denied %}
+  <div class="alert alert-warning" role="alert">
+    <strong>Access denied.</strong> Your role (<span class="role-badge role-{{ role }}">{{ role }}</span>) is not permitted to open that page.
+  </div>
+{% endif %}
+
 <div class="page-header" style="margin-bottom: 2rem;">
-  <h1 class="page-title">DBMS Financial Ledger & Real-Time Fraud Triage</h1>
-  <p class="page-subtitle">PostgreSQL 15+ ACID Source of Truth with scikit-learn Isolation Forest Fraud Scoring & Hash-Chained Audit Trail</p>
+  {% if role == 'customer' %}
+    <h1 class="page-title">My Accounts</h1>
+    <p class="page-subtitle">Your balances and transfers. Automated security checks run on every transfer; risk scores and case details stay with our fraud team.</p>
+  {% elif role == 'analyst' %}
+    <h1 class="page-title">Fraud Analyst Dashboard</h1>
+    <p class="page-subtitle">Isolation Forest triage queue with evidence synced asynchronously from PostgreSQL via the transactional outbox.</p>
+  {% else %}
+    <h1 class="page-title">DBMS Financial Ledger & Real-Time Fraud Triage</h1>
+    <p class="page-subtitle">PostgreSQL 15+ ACID Source of Truth with scikit-learn Isolation Forest Fraud Scoring & Hash-Chained Audit Trail</p>
+  {% endif %}
 </div>
 
-<!-- Stats Grid -->
+<!-- Stats Grid (role scoped) -->
 <div class="stats-grid">
-  <div class="glass-card stat-card">
-    <span class="stat-label">Total Accounts</span>
-    <span class="stat-value">{{ total_accounts }}</span>
-  </div>
-  <div class="glass-card stat-card">
-    <span class="stat-label">Total System Deposits</span>
-    <span class="stat-value">₹{{ "%.2f"|format(total_balance) }}</span>
-  </div>
-  <div class="glass-card stat-card">
-    <span class="stat-label">Open Fraud Alerts</span>
-    <span class="stat-value" style="color: var(--accent-amber);">{{ open_alerts }}</span>
-  </div>
-  <div class="glass-card stat-card">
-    <span class="stat-label">Outbox Queue Depth</span>
-    <span class="stat-value" style="color: var(--accent-cyan);">{{ outbox_pending }}</span>
-  </div>
+  {% if role == 'customer' %}
+    <div class="glass-card stat-card">
+      <span class="stat-label">My Accounts</span>
+      <span class="stat-value">{{ total_accounts }}</span>
+    </div>
+    <div class="glass-card stat-card">
+      <span class="stat-label">Available Balance</span>
+      <span class="stat-value">₹{{ "%.2f"|format(total_balance) }}</span>
+    </div>
+  {% elif role == 'analyst' %}
+    <div class="glass-card stat-card">
+      <span class="stat-label">Open Fraud Alerts</span>
+      <span class="stat-value" style="color: var(--accent-amber);">{{ open_alerts }}</span>
+    </div>
+    <div class="glass-card stat-card">
+      <span class="stat-label">High Severity Open</span>
+      <span class="stat-value" style="color: var(--accent-rose);">{{ high_alerts }}</span>
+    </div>
+    <div class="glass-card stat-card">
+      <span class="stat-label">Accounts Under Monitoring</span>
+      <span class="stat-value">{{ total_accounts }}</span>
+    </div>
+  {% else %}
+    <div class="glass-card stat-card">
+      <span class="stat-label">Total Accounts</span>
+      <span class="stat-value">{{ total_accounts }}</span>
+    </div>
+    <div class="glass-card stat-card">
+      <span class="stat-label">Total System Deposits</span>
+      <span class="stat-value">₹{{ "%.2f"|format(total_balance) }}</span>
+    </div>
+    <div class="glass-card stat-card">
+      <span class="stat-label">Open Fraud Alerts</span>
+      <span class="stat-value" style="color: var(--accent-amber);">{{ open_alerts }}</span>
+    </div>
+    <div class="glass-card stat-card">
+      <span class="stat-label">Outbox Queue Depth</span>
+      <span class="stat-value" style="color: var(--accent-cyan);">{{ outbox_pending }}</span>
+    </div>
+  {% endif %}
 </div>
 
-<!-- Quick Transfer and Accounts Grid -->
+{% if can_transfer %}
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-  
+
   <!-- Quick Transfer Widget -->
   <div class="glass-card">
     <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem;">⚡ Quick Money Transfer</h3>
@@ -38,7 +76,7 @@
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
         <div class="form-group">
           <label class="form-label">Source Account</label>
-          <select id="quick_src" name="source_account_id" class="form-select" required>
+          <select id="quick_src" name="source_account_id" class="form-select" required onchange="syncQuickDestination()">
             {% for acc in accounts %}
               <option value="{{ acc.account_id }}">Acc #{{ acc.account_id }} (Customer #{{ acc.customer_id }}) - ₹{{ "%.2f"|format(acc.balance) }}</option>
             {% endfor %}
@@ -46,9 +84,9 @@
         </div>
         <div class="form-group">
           <label class="form-label">Destination Account</label>
-          <select id="quick_dst" name="destination_account_id" class="form-select" required>
-            {% for acc in accounts %}
-              <option value="{{ acc.account_id }}" {% if loop.index == 2 %}selected{% endif %}>Acc #{{ acc.account_id }} (Customer #{{ acc.customer_id }}) - ₹{{ "%.2f"|format(acc.balance) }}</option>
+          <select id="quick_dst" name="destination_account_id" class="form-select" required onchange="syncQuickDestination(true)">
+            {% for acc in destination_accounts %}
+              <option value="{{ acc.account_id }}" {% if loop.index == 2 %}selected{% endif %}>Acc #{{ acc.account_id }} (Customer #{{ acc.customer_id }}){% if acc.balance is defined %} - ₹{{ "%.2f"|format(acc.balance) }}{% endif %}</option>
             {% endfor %}
           </select>
         </div>
@@ -73,7 +111,7 @@
 
   <!-- Accounts Summary -->
   <div class="glass-card">
-    <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem;">💼 Managed Accounts</h3>
+    <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem;">💼 {% if role == 'customer' %}My Accounts{% else %}Managed Accounts{% endif %}</h3>
     <div class="table-container">
       <table class="custom-table">
         <thead>
@@ -107,8 +145,75 @@
   </div>
 
 </div>
+{% endif %}
 
+{% if can_triage %}
+<div class="glass-card" style="margin-top: 1.5rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h3 style="font-size: 1.2rem; font-weight: 700;">🚨 Recent Fraud Alerts</h3>
+    <a href="/ui/alerts" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Open Analyst Queue</a>
+  </div>
+  <div class="table-container">
+    <table class="custom-table">
+      <thead>
+        <tr>
+          <th>Alert ID</th>
+          <th>Txn ID</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Created At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in recent_alerts %}
+          <tr>
+            <td><code>#{{ alert.alert_id }}</code></td>
+            <td><code>#{{ alert.txn_id }}</code></td>
+            <td>
+              {% if alert.severity == 'HIGH' %}
+                <span class="badge badge-danger">HIGH</span>
+              {% else %}
+                <span class="badge badge-warning">MEDIUM</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if alert.status == 'OPEN' %}
+                <span class="badge badge-warning">OPEN</span>
+              {% else %}
+                <span class="badge badge-success">CLOSED</span>
+              {% endif %}
+            </td>
+            <td style="color: var(--text-muted); font-size: 0.85rem;">{{ alert.created_at }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">No fraud alerts raised yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if can_transfer %}
 <script>
+function money(value) {
+  return (value === null || value === undefined) ? '—' : Number(value).toFixed(2);
+}
+
+function syncQuickDestination(force) {
+  const src = document.getElementById('quick_src');
+  const dst = document.getElementById('quick_dst');
+  if (!src || !dst) return;
+  if (force || !dst.value || dst.value === src.value) {
+    const alt = Array.from(dst.options).find(o => o.value !== src.value);
+    if (alt) dst.value = alt.value;
+  }
+}
+
+syncQuickDestination();
+
 async function submitQuickTransfer() {
   const src = document.getElementById('quick_src').value;
   const dst = document.getElementById('quick_dst').value;
@@ -117,16 +222,19 @@ async function submitQuickTransfer() {
 
   const resultDiv = document.getElementById('transfer-result');
   const btn = document.getElementById('quick-btn');
+
+  if (src === dst) {
+    resultDiv.innerHTML = '<div style="color: var(--accent-amber); padding: 0.5rem;">Choose a destination account different from the source account.</div>';
+    return;
+  }
+
   btn.disabled = true;
-  resultDiv.innerHTML = '<div style="color: var(--text-muted); padding: 0.5rem;">Evaluating features & executing atomic transfer...</div>';
+  resultDiv.innerHTML = '<div style="color: var(--text-muted); padding: 0.5rem;">Executing atomic transfer...</div>';
 
   try {
     const response = await fetch('/api/v1/transactions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Role': 'customer'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         source_account_id: parseInt(src),
         destination_account_id: parseInt(dst),
@@ -142,21 +250,29 @@ async function submitQuickTransfer() {
       let borderStyle = 'rgba(16, 185, 129, 0.3)';
       let bgStyle = 'rgba(16, 185, 129, 0.1)';
 
+      {% if role != 'customer' %}
       if (data.decision === 'ALERT') {
         badgeClass = 'badge-warning';
         borderStyle = 'rgba(245, 158, 11, 0.3)';
         bgStyle = 'rgba(245, 158, 11, 0.1)';
       }
 
+      const badge = (data.risk_score !== null && data.risk_score !== undefined)
+        ? `<span class="badge ${badgeClass}">${data.decision} (Risk: ${data.risk_score}/100)</span>`
+        : `<span class="badge badge-success">${data.status}</span>`;
+      {% else %}
+      const badge = `<span class="badge badge-success">${data.status}</span>`;
+      {% endif %}
+
       resultDiv.innerHTML = `
         <div style="background: ${bgStyle}; border: 1px solid ${borderStyle}; border-radius: 8px; padding: 1rem; margin-top: 0.5rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
             <strong>Transaction ${data.status}</strong>
-            <span class="badge ${badgeClass}">${data.decision} (Risk: ${data.risk_score}/100)</span>
+            ${badge}
           </div>
           <div style="font-size: 0.9rem; margin-bottom: 0.5rem;">${data.message}</div>
           <div style="font-size: 0.8rem; color: var(--text-muted);">
-            Txn ID: #${data.txn_id} | New Src Bal: ₹${data.source_balance.toFixed(2)} | New Dst Bal: ₹${data.destination_balance.toFixed(2)}
+            Txn ID: #${data.txn_id} | New Src Bal: ₹${money(data.source_balance)} | New Dst Bal: ₹${money(data.destination_balance)}
           </div>
         </div>
       `;
@@ -177,4 +293,5 @@ async function submitQuickTransfer() {
   }
 }
 </script>
+{% endif %}
 {% endblock %}

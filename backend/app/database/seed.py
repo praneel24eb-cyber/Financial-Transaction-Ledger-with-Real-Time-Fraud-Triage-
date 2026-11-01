@@ -4,6 +4,7 @@ from faker import Faker
 from backend.app.repositories.db import db_manager
 from backend.app.fraud.train import train_isolation_forest_model
 from backend.app.workers.outbox_worker import outbox_worker
+from backend.app.services.auth_service import ensure_demo_users
 
 logger = logging.getLogger(__name__)
 fake = Faker()
@@ -25,11 +26,11 @@ def seed_database(num_customers: int = 10, num_accounts: int = 15):
             tables = [
                 "ANALYST_REVIEW", "FRAUD_ALERT", "FRAUD_RESULT",
                 "OUTBOX_EVENT", "LEDGER_ENTRY", "TRANSACTION",
-                "DEVICE", "ACCOUNT", "CUSTOMER", "MERCHANT", "AUDIT_LOG"
+                "DEVICE", "ACCOUNT", "APP_USER", "CUSTOMER", "MERCHANT", "AUDIT_LOG"
             ]
             for tbl in tables:
                 try:
-                    cur.execute(f"TRUNCATE TABLE {tbl} CASCADE;")
+                    cur.execute(f"TRUNCATE TABLE {tbl} RESTART IDENTITY CASCADE;")
                 except Exception:
                     cur.execute(f"DELETE FROM {tbl};")
             conn.commit()
@@ -130,6 +131,9 @@ def seed_database(num_customers: int = 10, num_accounts: int = 15):
 
     # 7. Process pending outbox events
     outbox_worker.process_pending_events()
+
+    # 8. Recreate the demo login accounts (customer/analyst/admin)
+    ensure_demo_users()
 
     logger.info("Database seeding & ML model training pipeline completed successfully.")
 

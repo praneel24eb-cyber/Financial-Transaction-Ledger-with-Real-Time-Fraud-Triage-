@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     MODEL_PATH: str = os.getenv("MODEL_PATH", "backend/app/fraud/isolation_forest.joblib")
     MODEL_VERSION: str = "if-v1.0"
 
+    # Session / Authentication Settings
+    # Override SECRET_KEY in production; this default is for local academic use only.
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-only-insecure-ledger-signing-key-change-me")
+    SESSION_MAX_AGE_SECONDS: int = int(os.getenv("SESSION_MAX_AGE_SECONDS", str(8 * 60 * 60)))
+
+    # Trust an inbound X-User-Role header (service-to-service / automated tests).
+    # Off by default: otherwise any client could self-assign the admin role.
+    ALLOW_ROLE_HEADER: bool = os.getenv("ALLOW_ROLE_HEADER", "false").lower() in ("1", "true", "yes")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

@@ -27,7 +27,7 @@ def test_successful_transfer():
         "device_id": 1
     }
 
-    response = client.post("/api/v1/transactions", json=payload)
+    response = client.post("/api/v1/transactions", json=payload, headers={"X-User-Role": "customer"})
     assert response.status_code == 201, response.text
     data = response.json()
     assert data["status"] == "COMPLETED"
@@ -58,7 +58,7 @@ def test_insufficient_balance():
         "device_id": 1
     }
 
-    response = client.post("/api/v1/transactions", json=payload)
+    response = client.post("/api/v1/transactions", json=payload, headers={"X-User-Role": "customer"})
     assert response.status_code == 402
 
 def test_invalid_account():
@@ -68,7 +68,7 @@ def test_invalid_account():
         "amount": 100.00,
         "device_id": 1
     }
-    response = client.post("/api/v1/transactions", json=payload)
+    response = client.post("/api/v1/transactions", json=payload, headers={"X-User-Role": "customer"})
     assert response.status_code == 404
 
 def test_self_transfer_rejected():
@@ -78,5 +78,5 @@ def test_self_transfer_rejected():
         "amount": 100.00,
         "device_id": 1
     }
-    response = client.post("/api/v1/transactions", json=payload)
+    response = client.post("/api/v1/transactions", json=payload, headers={"X-User-Role": "customer"})
     assert response.status_code == 400

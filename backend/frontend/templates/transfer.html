@@ -5,13 +5,17 @@
 {% block content %}
 <div class="page-header" style="margin-bottom: 2rem;">
   <h1 class="page-title">Real-Time Money Transfer Triage</h1>
-  <p class="page-subtitle">Every transfer initiates an atomic PostgreSQL transaction with row locks (account_id ASC) and scikit-learn Isolation Forest ML scoring.</p>
+  {% if role == 'customer' %}
+    <p class="page-subtitle">Every transfer runs as an atomic PostgreSQL transaction with row-level locking and automated security checks. Risk scoring details are restricted to fraud analysts.</p>
+  {% else %}
+    <p class="page-subtitle">Every transfer initiates an atomic PostgreSQL transaction with row locks (account_id ASC) and scikit-learn Isolation Forest ML scoring.</p>
+  {% endif %}
 </div>
 
 <div style="max-width: 800px; margin: 0 auto;">
   <div class="glass-card">
     <h3 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem;">💸 Initiate Transfer</h3>
-    
+
     <form id="transfer-form" style="display: flex; flex-direction: column; gap: 1.25rem;">
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
         <div class="form-group">
@@ -26,8 +30,8 @@
         <div class="form-group">
           <label class="form-label">Destination Account</label>
           <select id="dst_acc" name="destination_account_id" class="form-select" required>
-            {% for acc in accounts %}
-              <option value="{{ acc.account_id }}" {% if loop.index == 2 %}selected{% endif %}>Account #{{ acc.account_id }} (Customer #{{ acc.customer_id }}) - ₹{{ "%.2f"|format(acc.balance) }}</option>
+            {% for acc in destination_accounts %}
+              <option value="{{ acc.account_id }}" {% if loop.index == 2 %}selected{% endif %}>Account #{{ acc.account_id }} (Customer #{{ acc.customer_id }}){% if acc.balance is defined %} - ₹{{ "%.2f"|format(acc.balance) }}{% endif %}</option>
             {% endfor %}
           </select>
         </div>
@@ -47,11 +51,13 @@
 
       <div style="display: flex; gap: 1rem; margin-top: 1rem;">
         <button type="button" onclick="submitTransfer()" class="btn btn-primary" style="flex: 1;">
-          Run Real-Time Triage & Transfer
+          {% if role == 'customer' %}Transfer Funds{% else %}Run Real-Time Triage & Transfer{% endif %}
         </button>
+        {% if role != 'customer' %}
         <button type="button" onclick="simulateHighRisk()" class="btn btn-danger">
           Simulate High Risk (>80)
         </button>
+        {% endif %}
       </div>
     </form>
 
@@ -60,6 +66,20 @@
 </div>
 
 <script>
+const ACCOUNTS = {{ accounts|tojson }};
+const DEVICES = {{ devices|tojson }};
+
+function money(value) {
+  return (value === null || value === undefined) ? '—' : Number(value).toFixed(2);
+}
+
+function pickForeignDevice(sourceAccountId) {
+  const source = ACCOUNTS.find(a => String(a.account_id) === String(sourceAccountId));
+  const sourceCustomer = source ? source.customer_id : null;
+  const foreign = DEVICES.find(d => d.customer_id !== sourceCustomer);
+  return (foreign || DEVICES[0] || { device_id: 1 }).device_id;
+}
+
 async function submitTransfer() {
   const src = document.getElementById('src_acc').value;
   const dst = document.getElementById('dst_acc').value;
@@ -68,7 +88,7 @@ async function submitTransfer() {
 
   const outputDiv = document.getElementById('triage-output');
   outputDiv.style.display = 'block';
-  outputDiv.innerHTML = '<div style="color: var(--text-muted); padding: 1rem;">Evaluating features & running IsolationForest model...</div>';
+  outputDiv.innerHTML = '<div style="color: var(--text-muted); padding: 1rem;">Evaluating features & executing atomic transfer...</div>';
 
   try {
     const response = await fetch('/api/v1/transactions', {
@@ -88,29 +108,38 @@ async function submitTransfer() {
       let badgeClass = 'badge-success';
       let decisionBox = 'background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3);';
 
+      {% if role != 'customer' %}
       if (data.decision === 'ALERT') {
         badgeClass = 'badge-warning';
         decisionBox = 'background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);';
       }
 
+      const badge = (data.risk_score !== null && data.risk_score !== undefined)
+        ? `<span class="badge ${badgeClass}">${data.decision} (Risk: ${data.risk_score}/100)</span>`
+        : `<span class="badge badge-success">${data.status}</span>`;
+      {% else %}
+      const badge = `<span class="badge badge-success">${data.status}</span>`;
+      {% endif %}
+
       outputDiv.innerHTML = `
         <div class="triage-box" style="${decisionBox}">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
             <h4 style="font-weight: 700; font-size: 1.1rem;">Transaction ${data.status}</h4>
-            <span class="badge ${badgeClass}">${data.decision} (Risk: ${data.risk_score}/100)</span>
+            ${badge}
           </div>
           <p style="color: var(--text-main); margin-bottom: 0.5rem;">${data.message}</p>
           <div style="font-size: 0.85rem; color: var(--text-muted);">
-            Transaction ID: <code>#${data.txn_id}</code> | Source Balance: <strong>₹${data.source_balance.toFixed(2)}</strong> | Dest Balance: <strong>₹${data.destination_balance.toFixed(2)}</strong>
+            Transaction ID: <code>#${data.txn_id}</code> | Source Balance: <strong>₹${money(data.source_balance)}</strong> | Dest Balance: <strong>₹${money(data.destination_balance)}</strong>
           </div>
         </div>
       `;
     } else {
+      const title = response.status === 403 ? 'Transfer Declined' : 'Transfer Rolled Back';
       outputDiv.innerHTML = `
         <div class="triage-box" style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.3);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-            <h4 style="font-weight: 700; color: var(--accent-rose);">Transaction Rolled Back</h4>
-            <span class="badge badge-danger">ROLLBACK (>80 Risk)</span>
+            <h4 style="font-weight: 700; color: var(--accent-rose);">${title}</h4>
+            <span class="badge badge-danger">${response.status}</span>
           </div>
           <p style="color: var(--text-main);">${data.detail}</p>
         </div>
@@ -122,8 +151,10 @@ async function submitTransfer() {
 }
 
 function simulateHighRisk() {
+  const src = document.getElementById('src_acc').value;
   document.getElementById('amount').value = '75000.00';
-  document.getElementById('device_id').value = '999';
+  // Use a registered device that does not belong to the source customer (unknown-device signal).
+  document.getElementById('device_id').value = pickForeignDevice(src);
   submitTransfer();
 }
 </script>

@@ -2,6 +2,11 @@ import pytest
 import psycopg2
 from backend.app.config import settings
 
+# The API tests authenticate with the X-User-Role header. In production that header is
+# ignored unless explicitly enabled, so the suite opts in before any request is made.
+settings.ALLOW_ROLE_HEADER = True
+
+
 def is_postgres_available() -> bool:
     try:
         conn = psycopg2.connect(
@@ -16,6 +21,7 @@ def is_postgres_available() -> bool:
         return True
     except Exception:
         return False
+
 
 @pytest.fixture(autouse=True)
 def check_postgres_db(request):
