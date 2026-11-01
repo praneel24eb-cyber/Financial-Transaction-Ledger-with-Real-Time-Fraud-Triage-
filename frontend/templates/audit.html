@@ -109,7 +109,9 @@ async function runChainVerification() {
   btn.disabled = true;
 
   try {
-    const res = await fetch('/api/v1/audit/verify/chain');
+    const res = await fetch('/api/v1/audit/verify/chain', {
+      headers: { 'X-User-Role': getActiveRole() }
+    });
     const data = await res.json();
 
     if (data.is_valid && !isCorrupted) {

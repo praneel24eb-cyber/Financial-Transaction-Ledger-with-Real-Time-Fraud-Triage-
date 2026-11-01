@@ -2,10 +2,11 @@ import os
 import threading
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 from backend.app.config import settings
 from backend.app.repositories.db import db_manager
@@ -78,12 +79,30 @@ app.include_router(fraud_router, prefix=api_prefix)
 app.include_router(audit_router, prefix=api_prefix)
 app.include_router(admin_router, prefix=api_prefix)
 
+def get_ui_role(request: Request) -> str:
+    """Helper to extract active role from cookie or default to customer."""
+    role = request.cookies.get("user_role", "customer").lower()
+    return role if role in ["customer", "analyst", "admin"] else "customer"
+
+class RoleSwitchPayload(BaseModel):
+    role: str
+
+@app.post("/api/v1/auth/role")
+def set_active_role(payload: RoleSwitchPayload, response: Response):
+    """Sets the active demonstration role in cookie."""
+    new_role = payload.role.lower()
+    if new_role not in ["customer", "analyst", "admin"]:
+        new_role = "customer"
+    response.set_cookie(key="user_role", value=new_role, path="/", max_age=86400, samesite="lax")
+    return {"status": "success", "role": new_role}
+
 # -------------------------------------------------------------------
 # UI Page Routes (Jinja2 Server-Rendered Views)
 # -------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 def page_dashboard(request: Request):
+    role = get_ui_role(request)
     try:
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
@@ -110,6 +129,7 @@ def page_dashboard(request: Request):
         name="index.html",
         context={
             "active_page": "dashboard",
+            "current_role": role,
             "total_accounts": total_accounts,
             "total_balance": total_balance,
             "open_alerts": open_alerts,
@@ -120,6 +140,7 @@ def page_dashboard(request: Request):
 
 @app.get("/ui/transfer", response_class=HTMLResponse)
 def page_transfer(request: Request):
+    role = get_ui_role(request)
     try:
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
@@ -127,10 +148,11 @@ def page_transfer(request: Request):
                 accs = [dict(a) for a in cur.fetchall()]
     except Exception:
         accs = []
-    return templates.TemplateResponse(request=request, name="transfer.html", context={"active_page": "transfer", "accounts": accs})
+    return templates.TemplateResponse(request=request, name="transfer.html", context={"active_page": "transfer", "current_role": role, "accounts": accs})
 
 @app.get("/ui/history", response_class=HTMLResponse)
 def page_history(request: Request, account_id: int = Query(default=None)):
+    role = get_ui_role(request)
     try:
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
@@ -164,6 +186,7 @@ def page_history(request: Request, account_id: int = Query(default=None)):
         name="history.html",
         context={
             "active_page": "history",
+            "current_role": role,
             "accounts": accs,
             "selected_account": account_id,
             "ledger_entries": entries
@@ -172,15 +195,41 @@ def page_history(request: Request, account_id: int = Query(default=None)):
 
 @app.get("/ui/alerts", response_class=HTMLResponse)
 def page_alerts(request: Request):
+    role = get_ui_role(request)
+    if role not in ["analyst", "admin"]:
+        return templates.TemplateResponse(
+            request=request,
+            name="forbidden.html",
+            context={
+                "active_page": "alerts",
+                "current_role": role,
+                "required_roles": "Fraud Analyst or System Admin",
+                "feature_name": "Fraud Alerts & Risk Triage Console"
+            },
+            status_code=403
+        )
     from backend.app.api.fraud import list_fraud_alerts
     try:
         alerts = list_fraud_alerts()
     except Exception:
         alerts = []
-    return templates.TemplateResponse(request=request, name="alerts.html", context={"active_page": "alerts", "alerts": alerts})
+    return templates.TemplateResponse(request=request, name="alerts.html", context={"active_page": "alerts", "current_role": role, "alerts": alerts})
 
 @app.get("/ui/audit", response_class=HTMLResponse)
 def page_audit(request: Request):
+    role = get_ui_role(request)
+    if role != "admin":
+        return templates.TemplateResponse(
+            request=request,
+            name="forbidden.html",
+            context={
+                "active_page": "audit",
+                "current_role": role,
+                "required_roles": "System Admin",
+                "feature_name": "SHA-256 Cryptographic Audit Trail"
+            },
+            status_code=403
+        )
     try:
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
@@ -188,12 +237,25 @@ def page_audit(request: Request):
                 rows = [dict(r) for r in cur.fetchall()]
     except Exception:
         rows = []
-    return templates.TemplateResponse(request=request, name="audit.html", context={"active_page": "audit", "audit_rows": rows})
+    return templates.TemplateResponse(request=request, name="audit.html", context={"active_page": "audit", "current_role": role, "audit_rows": rows})
 
 @app.get("/ui/benchmarks", response_class=HTMLResponse)
 def page_benchmarks(request: Request):
+    role = get_ui_role(request)
+    if role != "admin":
+        return templates.TemplateResponse(
+            request=request,
+            name="forbidden.html",
+            context={
+                "active_page": "benchmarks",
+                "current_role": role,
+                "required_roles": "System Admin",
+                "feature_name": "DBMS Concurrency & Latency Benchmarks"
+            },
+            status_code=403
+        )
     report = get_benchmark_report()
-    return templates.TemplateResponse(request=request, name="benchmarks.html", context={"active_page": "benchmarks", "benchmarks": report})
+    return templates.TemplateResponse(request=request, name="benchmarks.html", context={"active_page": "benchmarks", "current_role": role, "benchmarks": report})
 
 if __name__ == "__main__":
     import uvicorn

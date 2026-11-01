@@ -92,7 +92,10 @@ async function submitTransfer() {
   try {
     const response = await fetch('/api/v1/transactions', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': getActiveRole()
+      },
       body: JSON.stringify({
         source_account_id: parseInt(src),
         destination_account_id: parseInt(dst),

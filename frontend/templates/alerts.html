@@ -228,7 +228,10 @@ async function submitReview() {
   try {
     const res = await fetch(`/api/v1/fraud/alerts/${alertId}/review`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': getActiveRole()
+      },
       body: JSON.stringify({analyst_id: analystId, decision: decision, notes: notes})
     });
 

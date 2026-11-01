@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Access Denied | LedgerGuard{% endblock %}
+
+{% block content %}
+<div style="max-width: 650px; margin: 3rem auto; text-align: center;">
+  <div class="glass-card" style="padding: 2.5rem 2rem; border-color: rgba(244, 63, 94, 0.3);">
+    <div style="font-size: 3.5rem; margin-bottom: 1rem;">🛡️🔒</div>
+    <h2 style="font-size: 1.6rem; font-weight: 700; color: var(--accent-rose); margin-bottom: 0.75rem;">
+      Access Restricted: {{ feature_name }}
+    </h2>
+    <p style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 1.5rem;">
+      This section is restricted to <strong>{{ required_roles }}</strong>. Regular customer access accounts are prohibited from viewing internal fraud models, risk thresholds, and database administration panels.
+    </p>
+
+    <div style="background: rgba(255, 255, 255, 0.04); border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem;">
+      <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">Current Session Role:</div>
+      <span class="badge badge-purple" style="font-size: 0.9rem; padding: 0.35rem 0.9rem;">
+        {{ current_role | upper }}
+      </span>
+    </div>
+
+    <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+      <a href="/" class="btn btn-secondary" style="text-decoration: none;">← Return to Dashboard</a>
+      {% if required_roles == 'System Admin' %}
+        <button class="btn btn-primary" onclick="switchRole('admin')">⚡ Switch to System Admin</button>
+      {% else %}
+        <button class="btn btn-primary" onclick="switchRole('analyst')">🛡️ Switch to Fraud Analyst</button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
