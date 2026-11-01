@@ -6,6 +6,32 @@ from backend.app.repositories.db import db_manager
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
+@router.get("", response_model=List[dict])
+def list_recent_transactions(limit: int = Query(default=20, ge=1, le=100)):
+    """Returns recent transactions for the live ticker and dashboard feed."""
+    with db_manager.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT t.txn_id, t.txn_type, t.status, t.initiated_at,
+                       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'DEBIT'), 0.0) as amount
+                FROM TRANSACTION t
+                LEFT JOIN LEDGER_ENTRY l ON t.txn_id = l.txn_id
+                GROUP BY t.txn_id, t.txn_type, t.status, t.initiated_at
+                ORDER BY t.txn_id DESC
+                LIMIT %s;
+            """, (limit,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "txn_id": r["txn_id"],
+                    "txn_type": r["txn_type"],
+                    "status": r["status"],
+                    "initiated_at": str(r["initiated_at"]),
+                    "amount": float(r["amount"])
+                }
+                for r in rows
+            ]
+
 @router.post("", response_model=TransferResponse, status_code=status.HTTP_201_CREATED)
 def initiate_transfer(payload: TransferRequest):
     res = ledger_service.execute_transfer(
