@@ -1,6 +1,7 @@
 import os
 import threading
 import logging
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
@@ -130,14 +131,21 @@ def page_transfer(request: Request):
     return templates.TemplateResponse(request=request, name="transfer.html", context={"active_page": "transfer", "accounts": accs})
 
 @app.get("/ui/history", response_class=HTMLResponse)
-def page_history(request: Request, account_id: int = Query(default=None)):
+def page_history(request: Request, account_id: Optional[str] = Query(default=None)):
+    parsed_account_id = None
+    if account_id and str(account_id).strip():
+        try:
+            parsed_account_id = int(str(account_id).strip())
+        except ValueError:
+            parsed_account_id = None
+
     try:
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT account_id FROM ACCOUNT ORDER BY account_id ASC;")
                 accs = [dict(a) for a in cur.fetchall()]
 
-                if account_id:
+                if parsed_account_id:
                     query = """
                         SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
                         FROM LEDGER_ENTRY l
@@ -145,7 +153,7 @@ def page_history(request: Request, account_id: int = Query(default=None)):
                         WHERE l.account_id = %s
                         ORDER BY l.entry_id DESC LIMIT 50;
                     """
-                    cur.execute(query, (account_id,))
+                    cur.execute(query, (parsed_account_id,))
                 else:
                     query = """
                         SELECT l.entry_id, l.txn_id, l.account_id, l.direction, l.amount, l.created_at, t.status, t.txn_type
@@ -165,17 +173,19 @@ def page_history(request: Request, account_id: int = Query(default=None)):
         context={
             "active_page": "history",
             "accounts": accs,
-            "selected_account": account_id,
+            "selected_account": parsed_account_id,
             "ledger_entries": entries
         }
     )
 
 @app.get("/ui/alerts", response_class=HTMLResponse)
 def page_alerts(request: Request):
-    from backend.app.api.fraud import list_fraud_alerts
+    from backend.app.api.fraud import fetch_fraud_alerts
     try:
-        alerts = list_fraud_alerts()
-    except Exception:
+        alerts = fetch_fraud_alerts()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not load alerts: {e}")
         alerts = []
     return templates.TemplateResponse(request=request, name="alerts.html", context={"active_page": "alerts", "alerts": alerts})
 

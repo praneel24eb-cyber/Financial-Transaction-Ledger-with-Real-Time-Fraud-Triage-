@@ -2,9 +2,33 @@
 {% block title %}Fraud Alerts — Analyst Dashboard | LedgerGuard{% endblock %}
 
 {% block content %}
+<style>
+  .score-circle {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.78rem;
+  }
+  .score-high {
+    border: 2px solid var(--accent-rose);
+    color: var(--accent-rose);
+  }
+  .score-mid {
+    border: 2px solid var(--accent-amber);
+    color: var(--accent-amber);
+  }
+  .score-low {
+    border: 2px solid var(--accent-emerald);
+    color: var(--accent-emerald);
+  }
+</style>
 <div style="margin-bottom:2rem;">
   <h1 class="page-title">🚨 Fraud Alerts — Analyst Dashboard</h1>
-  <p class="page-subtitle">Transactions scoring 50–80 on the Isolation Forest model are queued here for human analyst review. Evidence is synced asynchronously from PostgreSQL to MongoDB via the transactional outbox.</p>
+  <p class="page-subtitle">Transactions scoring 50-80 on the Isolation Forest model are queued here for human analyst review. Evidence is synced asynchronously from PostgreSQL to MongoDB via the transactional outbox.</p>
 </div>
 
 <!-- Filter Bar -->
@@ -79,10 +103,7 @@
             {% if alert.evidence %}
               {% set rs = alert.evidence.risk_score %}
               <div style="display:inline-flex; align-items:center; gap:0.4rem;">
-                <div style="width:42px; height:42px; border-radius:50%; border:2px solid
-                  {% if rs > 70 %}var(--accent-rose){% elif rs > 50 %}var(--accent-amber){% else %}var(--accent-emerald){% endif %};
-                  display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.78rem;
-                  color:{% if rs > 70 %}var(--accent-rose){% elif rs > 50 %}var(--accent-amber){% else %}var(--accent-emerald){% endif %};">
+                <div class="score-circle {% if rs > 70 %}score-high{% elif rs > 50 %}score-mid{% else %}score-low{% endif %}">
                   {{ rs }}
                 </div>
                 <span style="font-size:0.72rem; color:var(--text-dim);">/100</span>
@@ -103,12 +124,13 @@
           <td>
             {% if alert.status == 'OPEN' %}
               <button class="btn btn-secondary" style="padding:0.4rem 0.9rem; font-size:0.8rem;"
-                onclick="openReviewPanel(
-                  '{{ alert.alert_id }}',
-                  '{{ alert.severity }}',
-                  '{{ alert.result_id }}',
-                  {% if alert.evidence %}'{{ alert.evidence.risk_score }}', '{{ alert.evidence.decision }}', '{{ alert.evidence.explanation | replace("'", "&#39;") }}'{% else %}'—', '—', '—'{% endif %}
-                )">
+                data-alert-id="{{ alert.alert_id }}"
+                data-severity="{{ alert.severity }}"
+                data-result-id="{{ alert.result_id }}"
+                data-risk-score="{{ alert.evidence.risk_score if alert.evidence else '—' }}"
+                data-decision="{{ alert.evidence.decision if alert.evidence else '—' }}"
+                data-explanation="{{ alert.evidence.explanation if alert.evidence else '—' }}"
+                onclick="handleReviewClick(this)">
                 Review
               </button>
             {% else %}
@@ -185,6 +207,17 @@
 </div>
 
 <script>
+function handleReviewClick(btn) {
+  openReviewPanel(
+    btn.dataset.alertId,
+    btn.dataset.severity,
+    btn.dataset.resultId,
+    btn.dataset.riskScore,
+    btn.dataset.decision,
+    btn.dataset.explanation
+  );
+}
+
 function filterAlerts() {
   const sev = document.getElementById('filter-severity').value;
   const sta = document.getElementById('filter-status').value;

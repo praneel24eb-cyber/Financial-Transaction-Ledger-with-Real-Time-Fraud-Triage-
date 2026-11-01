@@ -61,3 +61,23 @@ def list_accounts():
             cur.execute("SELECT account_id, customer_id, account_type, balance, status, created_at FROM ACCOUNT ORDER BY account_id ASC;")
             rows = cur.fetchall()
             return [dict(r) for r in rows]
+
+
+@router.post("/unfreeze-all")
+def unfreeze_all_accounts():
+    with db_manager.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE ACCOUNT SET status = 'ACTIVE' WHERE status = 'FROZEN';")
+            conn.commit()
+            return {"message": "All frozen accounts have been restored to ACTIVE status."}
+
+@router.post("/{account_id}/unfreeze")
+def unfreeze_account(account_id: int):
+    with db_manager.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE ACCOUNT SET status = 'ACTIVE' WHERE account_id = %s RETURNING account_id, status;", (account_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Account not found.")
+            conn.commit()
+            return {"message": f"Account #{account_id} unfrozen and restored to ACTIVE status.", "account_id": account_id, "status": "ACTIVE"}

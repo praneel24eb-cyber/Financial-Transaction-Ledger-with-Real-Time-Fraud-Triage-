@@ -7,8 +7,8 @@ from backend.app.api.security import require_analyst_or_admin
 
 router = APIRouter(prefix="/fraud", tags=["Fraud Triage & Alerts"])
 
-@router.get("/alerts", response_model=List[FraudAlertResponse])
-def list_fraud_alerts(status_filter: Optional[str] = Query(default=None, pattern="^(OPEN|REVIEWED|DISMISSED)$")):
+def fetch_fraud_alerts(status_filter=None):
+    """Internal helper callable without FastAPI dependency injection."""
     with db_manager.get_connection() as conn:
         with conn.cursor() as cur:
             if status_filter:
@@ -19,16 +19,17 @@ def list_fraud_alerts(status_filter: Optional[str] = Query(default=None, pattern
             else:
                 cur.execute("SELECT alert_id, result_id, severity, status, created_at FROM FRAUD_ALERT ORDER BY alert_id DESC;")
             rows = cur.fetchall()
-
             alerts = []
             for r in rows:
                 alert_dict = dict(r)
-                alert_id = alert_dict["alert_id"]
-                evidence = mongo_repo.get_alert_evidence(alert_id)
+                evidence = mongo_repo.get_alert_evidence(alert_dict["alert_id"])
                 alert_dict["evidence"] = evidence
                 alerts.append(alert_dict)
-
             return alerts
+
+@router.get("/alerts", response_model=List[FraudAlertResponse])
+def list_fraud_alerts(status_filter: Optional[str] = Query(default=None, pattern="^(OPEN|REVIEWED|DISMISSED)$")):
+    return fetch_fraud_alerts(status_filter=status_filter)
 
 @router.get("/analysts", response_model=List[AnalystResponse])
 def list_analysts():
