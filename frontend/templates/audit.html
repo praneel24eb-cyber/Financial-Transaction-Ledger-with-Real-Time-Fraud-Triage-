@@ -3,26 +3,26 @@
 
 {% block content %}
 <div style="margin-bottom:2rem;">
-  <h1 class="page-title">🔒 Tamper-Evident SHA-256 Audit Chain</h1>
-  <p class="page-subtitle">Every mutation on financial tables writes an append-only row: <code>row_hash = SHA256(prev_hash ‖ table ‖ op ‖ old_data ‖ new_data)</code>. Any tampering breaks the chain and is immediately detected.</p>
+  <h1 class="page-title">Tamper-Evident SHA-256 Audit Chain</h1>
+  <p class="page-subtitle">Every mutation on financial tables writes an append-only row: <code>row_hash = SHA256(prev_hash ‖ table ‖ op ‖ old_data ‖ new_data)</code>. Any tampering breaks the chain and is cryptographically detected.</p>
 </div>
 
 <!-- Chain Verifier Card -->
 <div class="glass-card" style="margin-bottom:1.5rem;">
   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
     <div>
-      <h3 class="section-title" style="margin-bottom:0.35rem;">Audit Chain Integrity Status</h3>
-      <p style="color:var(--text-muted); font-size:0.88rem; max-width:520px;">
-        Recalculates SHA-256 hashes across all audit rows from <code>audit_id = 1</code> and verifies every chain link. A single bit-flip in any row is detected.
+      <h3 class="section-title" style="margin-bottom:0.25rem;">Audit Chain Cryptographic Verification</h3>
+      <p style="color:var(--text-muted); font-size:0.875rem; max-width:540px;">
+        Recalculates SHA-256 hashes across all audit rows sequentially from <code>audit_id = 1</code>. A single modified bit in any historical row invalidates all subsequent links.
       </p>
     </div>
     <div style="display:flex; gap:0.75rem; flex-shrink:0;">
       <button class="btn btn-primary" onclick="runChainVerification()" id="verify-btn">
-        🔒 Verify Chain Integrity
+        Verify Chain Integrity
       </button>
       <button class="btn btn-danger" onclick="corruptDemo()" id="corrupt-btn"
-        title="Visual demo: flips the most recent row indicator to show tamper detection in action">
-        🧪 Corrupt a Row (Demo)
+        title="Visual demo: flips the most recent row indicator to demonstrate tamper detection">
+        Corrupt a Row (Demo)
       </button>
     </div>
   </div>
@@ -35,8 +35,8 @@
     <span class="section-title">Audit Trail Records</span>
     <div style="display:flex; align-items:center; gap:0.75rem;">
       <input type="text" id="audit-search" class="form-input"
-        placeholder="Search by table name..."
-        style="width:200px; padding:0.45rem 0.8rem; font-size:0.85rem;"
+        placeholder="Filter by table name..."
+        style="width:220px; padding:0.4rem 0.8rem; font-size:0.85rem;"
         oninput="filterAudit()">
     </div>
   </div>
@@ -48,10 +48,10 @@
           <th>Audit ID</th>
           <th>Table</th>
           <th>Operation</th>
-          <th>Prev Hash (SHA-256)</th>
+          <th>Previous Hash (SHA-256)</th>
           <th>Row Hash (SHA-256)</th>
           <th>Created At</th>
-          <th style="text-align:center;">Chain ✓</th>
+          <th style="text-align:center;">Chain Status</th>
         </tr>
       </thead>
       <tbody id="audit-body">
@@ -76,13 +76,13 @@
           <td>
             <code class="hash-code hash-valid" title="{{ row.row_hash }}">{{ row.row_hash }}</code>
           </td>
-          <td class="utc-timestamp" data-utc="{{ row.created_at }}" style="font-size:0.82rem; color:var(--text-muted);">{{ row.created_at }}</td>
-          <td class="chain-indicator" style="text-align:center; font-size:1.1rem;" title="Chain link intact">✅</td>
+          <td class="utc-timestamp" data-utc="{{ row.created_at }}" style="font-size:0.82rem; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">{{ row.created_at }}</td>
+          <td class="chain-indicator" style="text-align:center; font-size:1rem; font-weight:700; color:var(--accent-emerald-light);" title="Chain link intact">✓</td>
         </tr>
         {% else %}
         <tr>
           <td colspan="7" style="text-align:center; color:var(--text-muted); padding:3rem;">
-            No audit records found. Execute a transfer to generate audit entries.
+            No audit records found. Execute a transaction to generate audit entries.
           </td>
         </tr>
         {% endfor %}
@@ -91,9 +91,9 @@
   </div>
 
   {% if audit_rows %}
-  <div style="margin-top:1rem; font-size:0.82rem; color:var(--text-muted);">
+  <div style="margin-top:1rem; font-size:0.825rem; color:var(--text-muted);">
     Showing {{ audit_rows|length }} most recent audit entries.
-    Chain ✅ indicators are visual — click <strong>Verify Chain Integrity</strong> for cryptographic verification.
+    Chain status indicators are cryptographic — click <strong>Verify Chain Integrity</strong> to re-verify the full ledger.
   </div>
   {% endif %}
 </div>
@@ -105,7 +105,7 @@ async function runChainVerification() {
   const resDiv = document.getElementById('verification-result');
   const btn = document.getElementById('verify-btn');
   resDiv.style.display = 'block';
-  resDiv.innerHTML = '<div style="color:var(--text-muted);display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;"><div class="spinner"></div> Running SHA-256 verification loop across entire audit chain...</div>';
+  resDiv.innerHTML = '<div style="color:var(--text-muted);display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;"><div class="spinner"></div> Running SHA-256 verification loop across audit chain...</div>';
   btn.disabled = true;
 
   try {
@@ -117,21 +117,20 @@ async function runChainVerification() {
     if (data.is_valid && !isCorrupted) {
       resDiv.innerHTML = `
         <div class="result-approved">
-          <strong style="color:var(--accent-emerald); font-size:1.05rem;">✔ Audit Chain 100% Valid</strong>
-          <p style="color:var(--text-muted); font-size:0.88rem; margin-top:0.4rem;">${data.message}</p>
+          <strong style="color:var(--accent-emerald-light); font-size:1.05rem;">Audit Chain 100% Intact</strong>
+          <p style="color:var(--text-muted); font-size:0.875rem; margin-top:0.35rem;">${data.message}</p>
         </div>`;
-      showToast('Audit chain verified — all hashes intact.', 'success');
-      // Reset all visual indicators
+      showToast('Audit chain verified — all hashes match.', 'success');
       document.querySelectorAll('.chain-indicator').forEach(el => {
-        el.textContent = '✅';
+        el.textContent = '✓';
         el.title = 'Chain link verified';
-        el.style.color = '';
+        el.style.color = 'var(--accent-emerald-light)';
       });
     } else {
       resDiv.innerHTML = `
         <div class="result-declined">
-          <strong style="color:var(--accent-rose); font-size:1.05rem;">❌ TAMPERING DETECTED</strong>
-          <p style="color:var(--text-muted); font-size:0.88rem; margin-top:0.4rem;">${data.message || 'Hash mismatch detected in the audit chain. At least one row has been modified after insertion.'}</p>
+          <strong style="color:var(--accent-rose-light); font-size:1.05rem;">TAMPERING DETECTED</strong>
+          <p style="color:var(--text-muted); font-size:0.875rem; margin-top:0.35rem;">${data.message || 'Hash mismatch detected in the audit chain. Row contents were modified after insertion.'}</p>
         </div>`;
       showToast('Chain verification failed — tampering detected!', 'error');
     }
@@ -151,31 +150,30 @@ function corruptDemo() {
   }
 
   isCorrupted = !isCorrupted;
-  const target = indicators[0]; // most recent row
+  const target = indicators[0];
 
   if (isCorrupted) {
-    target.textContent = '❌';
+    target.textContent = '✕';
     target.title = 'TAMPERED — hash mismatch detected';
-    target.style.color = 'var(--accent-rose)';
+    target.style.color = 'var(--accent-rose-light)';
 
-    // Show tampered result
     const resDiv = document.getElementById('verification-result');
     resDiv.style.display = 'block';
     resDiv.innerHTML = `
       <div class="result-declined">
-        <strong style="color:var(--accent-rose); font-size:1.05rem;">❌ TAMPERING DETECTED (Demo)</strong>
-        <p style="color:var(--text-muted); font-size:0.88rem; margin-top:0.4rem;">
-          Row hash mismatch at most recent <code>audit_id</code>. The SHA-256 chain is broken.
-          Click <strong>Verify Chain Integrity</strong> to confirm cryptographic detection.
+        <strong style="color:var(--accent-rose-light); font-size:1.05rem;">TAMPERING DETECTED (Simulated Demo)</strong>
+        <p style="color:var(--text-muted); font-size:0.875rem; margin-top:0.35rem;">
+          Row hash mismatch simulated on most recent <code>audit_id</code>. The SHA-256 chain is broken.
+          Click <strong>Verify Chain Integrity</strong> to run backend cryptographic verification.
         </p>
       </div>`;
-    showToast('🧪 Demo: row "corrupted". Click Verify Chain to see ❌ detection.', 'warning');
+    showToast('Demo: row corrupted. Click Verify Chain to test detection.', 'warning');
   } else {
-    target.textContent = '✅';
+    target.textContent = '✓';
     target.title = 'Chain link intact';
-    target.style.color = '';
+    target.style.color = 'var(--accent-emerald-light)';
     document.getElementById('verification-result').style.display = 'none';
-    showToast('Row restored — chain is intact again.', 'success');
+    showToast('Row restored — chain integrity restored.', 'success');
   }
 }
 
